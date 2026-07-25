@@ -1,0 +1,28 @@
+{
+  "name": "@dmemo/integration-tests",
+  "version": "0.0.0",
+  "private": true,
+  "description": "T5.1 live-testnet integration tests for dMemo. NOT published. Each test is an independently runnable node script that spends real (small) testnet 0G from spike/.env-funded ephemeral wallets. Do not run via `pnpm -r test` — these cost real spend and require spike/.env; invoke individual scripts explicitly.",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "echo '@dmemo/integration-tests: no build step (plain node scripts)'",
+    "test:blob-roundtrip": "node scripts/test-blob-roundtrip.mjs",
+    "test:tamper": "node scripts/test-tamper.mjs",
+    "test:pointer": "node scripts/test-pointer.mjs",
+    "test:crash-recovery": "node scripts/test-crash-recovery.mjs",
+    "test:checkpoint-consolidation": "node scripts/test-checkpoint-consolidation.mjs",
+    "test:host-node-adapter": "node scripts/test-host-node-adapter.mjs",
+    "test:host-opencode": "node scripts/test-host-opencode.mjs",
+    "test:host-openclaw": "node scripts/test-host-openclaw.mjs",
+    "test:all": "node scripts/run-all.mjs"
+  },
+  "dependencies": {
+    "@dmemo/core": "workspace:*",
+    "@dmemo/blob-spec": "workspace:*",
+    "@0gfoundation/0g-ts-sdk": "^1.2.8",
+    "ethers": "^6.17.0"
+  }
+}

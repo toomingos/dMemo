@@ -1,0 +1,13 @@
+{"test":"blob-roundtrip","address":"0x6D556b91c8A5Fed183A7A0054ee5729f64f46A20","fundedEther":"0.02","remainingEther":"0.018881781063463484","spentEther":"0.001118218936536516","at":"2026-07-25T13:51:06.818Z"}
+{"test":"tamper","address":"0xd2202C3710F3954EBF6728a602809cFd442a8207","fundedEther":"0.02","remainingEther":"0.018870862530734193","spentEther":"0.001129137469265807","at":"2026-07-25T13:51:44.039Z"}
+{"test":"blob-roundtrip","address":"0x30fcA79F7F594A570c49798A4B38D35368D6d898","fundedEther":"0.02","remainingEther":"0.018856897063419937","spentEther":"0.001143102936580063","at":"2026-07-25T14:02:51.224Z"}
+{"test":"tamper","address":"0x6eE2086174Ad79C634EE3c08a7Ca5575c77d7A05","fundedEther":"0.02","remainingEther":"0.018845978530690646","spentEther":"0.001154021469309354","at":"2026-07-25T14:03:31.728Z"}
+{"test":"pointer","address":"0x4B67700b81Eb7D1f0c73422b3d54A6005b3be7c0","fundedEther":"0.03","remainingEther":"0.027681409061362833","spentEther":"0.002318590938637167","at":"2026-07-25T14:04:20.420Z"}
+{"test":"pointer","address":"0x2ae6808d28a3DD9762524BC711aed261aE960274","fundedEther":"0.03","remainingEther":"0.027667993061339355","spentEther":"0.002332006938660645","at":"2026-07-25T14:05:03.543Z"}
+{"test":"crash-recovery","address":"0x13AbE2cFF8147D9E9dea42c8F1D7841a8150593a","fundedEther":"0.03","remainingEther":"0.027450886649742723","spentEther":"0.002549113350257277","at":"2026-07-25T14:08:34.873Z"}
+{"test":"checkpoint-consolidation","address":"0x2046aD7Ba523331b54Ed5b70CBdFa7257df1Acbf","fundedEther":"0.03","remainingEther":"0.027478358850725524","spentEther":"0.002521641149274476","at":"2026-07-25T14:09:27.713Z"}
+{"test":"host-node-adapter","address":"0xF8A7DAc1AE6416DB0eC3164cA76b12Bd63129C40","fundedEther":"0.03","remainingEther":"0.028770549726819747","spentEther":"0.001229450273180253","at":"2026-07-25T14:11:03.177Z"}
+{"test":"host-node-adapter","address":"0x7884972982B3eE1720b22Fc3506a2f794d7fDAac","fundedEther":"0.03","remainingEther":"0.028744377726773946","spentEther":"0.001255622273226054","at":"2026-07-25T14:12:54.293Z"}
+{"test":"host-opencode","address":"0xAA15215613Edf79f3B0D6BfD86349D96D022D108","fundedEther":"5.815699968745780958","remainingEther":"5.765615968745633958","spentEther":"0.050084000000147","at":"2026-07-25T14:14:08.005Z"}
+{"test":"host-openclaw","address":"0xAA15215613Edf79f3B0D6BfD86349D96D022D108","fundedEther":"5.765615968745633958","remainingEther":"5.715531968745486958","spentEther":"0.050084000000147","at":"2026-07-25T14:15:00.919Z"}
+{"test":"latency-collector","address":"0x6B7548833842a36f8682f15c02f18F0A1826fB8f","fundedEther":"0.05","remainingEther":"0.037750795244898267","spentEther":"0.012249204755101733","at":"2026-07-25T14:23:14.584Z"}
