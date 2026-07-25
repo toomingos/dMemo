@@ -1,11 +1,12 @@
 import type { Hooks, Plugin, PluginInput } from '@opencode-ai/plugin';
 import { tool } from '@opencode-ai/plugin';
-import { loadConfigFromEnv, MissingConfigError, type DmemoConfig } from '@dmemo/core';
+import { loadDmemoConfig, MissingConfigError, installGracefulShutdown, type DmemoConfig } from '@dmemo/core';
 import { realOpenSession, type DmemoSessionLike, type OpenSessionFn } from './types.js';
 import { resolveUserId, resolveScope, generateSessionRunId } from './identity.js';
 import { asScope, scopeSearchFilters, scopeWriteParams, SCOPE_GUIDANCE, type Identity } from './scope.js';
 import { extractText, lastMessageOfRole, buildTurnText, redact, type MessagePartsLike } from './capture.js';
 import { shouldTriggerCapture, totalTokens, type TokenUsage } from './compaction.js';
+import { SessionTurnTracker, turnBoundarySessionID, parseCaptureEveryNTurns, transformMessagesSessionID } from './sessionTurns.js';
 
 // dMemo OpenCode plugin (T3.2). Forked from
 // `mem0/integrations/mem0-plugin/.opencode-plugin/opencode-mem0.ts` (D18).
@@ -34,18 +35,24 @@ interface SessionState {
   session: DmemoSessionLike;
   identity: Identity;
   msgCount: number;
-  assistantTurnCount: number;
   memoryCount: number;
-  lastCaptureAtMs: number;
-  capturedMessageIds: Set<string>;
-  pendingContext: string[];
   modelLimitCache: Map<string, number>;
-  lastUserText: Map<string, string>;
+  /** Per-OpenCode-session turn counting, capture dedupe, cooldown clock,
+   * last user prompt, AND queued memory-injection context (`pendingContext`
+   * used to live here as a single shared array — a cross-session leak, since
+   * one plugin instance serves every session on the server; see gotcha 27).
+   * Replaces the global `assistantTurnCount` / `lastCaptureAtMs` /
+   * `capturedMessageIds` / `lastUserText` (F5) and the global
+   * `pendingContext` (this fix). */
+  turns: SessionTurnTracker;
 }
 
 export interface DmemoPluginDeps {
   openSession?: OpenSessionFn;
-  /** Injected for tests; defaults to real env-based config loading. */
+  /** Injected for tests; defaults to `@dmemo/core`'s `loadDmemoConfig`
+   * (env wins, falls back to `~/.dmemo/config.json` — F1: this plugin used
+   * to call env-only `loadConfigFromEnv` directly and silently never saw a
+   * config written by `dmemo setup`). */
   loadConfig?: (env?: NodeJS.ProcessEnv) => DmemoConfig;
 }
 
@@ -56,7 +63,7 @@ export interface DmemoPluginDeps {
  */
 export function createDmemoPlugin(deps: DmemoPluginDeps = {}): Plugin {
   const openSession = deps.openSession ?? realOpenSession;
-  const loadConfig = deps.loadConfig ?? loadConfigFromEnv;
+  const loadConfig = deps.loadConfig ?? loadDmemoConfig;
 
   return async (ctx: PluginInput): Promise<Hooks> => {
     // Fail-open (D-common to all host adapters): no wallet/config -> no-op
@@ -92,20 +99,30 @@ export function createDmemoPlugin(deps: DmemoPluginDeps = {}): Plugin {
       return {};
     }
 
+    const captureEveryNTurns = parseCaptureEveryNTurns(process.env.DMEMO_OPENCODE_CAPTURE_EVERY);
+
     const state: SessionState = {
       session,
       identity: { userId, sessionId: generateSessionRunId() },
       msgCount: 0,
-      assistantTurnCount: 0,
       memoryCount: 0,
-      lastCaptureAtMs: 0,
-      capturedMessageIds: new Set(),
-      pendingContext: [],
       modelLimitCache: new Map(),
-      lastUserText: new Map(),
+      turns: new SessionTurnTracker(captureEveryNTurns),
     };
 
     const infer = config.infer;
+
+    // OpenCode drops the promise returned by the `event` hook — it is
+    // fire-and-forget (anomalyco/opencode#16879), and in `opencode run` mode
+    // teardown can start while a capture is still in flight
+    // (anomalyco/opencode#15267). Track them so `dispose` can drain them
+    // before closing the session.
+    const pendingCaptures = new Set<Promise<unknown>>();
+    function tracked(work: Promise<unknown>): Promise<unknown> {
+      pendingCaptures.add(work);
+      void work.catch(() => {}).finally(() => pendingCaptures.delete(work));
+      return work;
+    }
 
     async function resolveContextLimit(providerID: string | undefined, modelID: string | undefined): Promise<number | undefined> {
       if (!providerID || !modelID) return undefined;
@@ -127,24 +144,37 @@ export function createDmemoPlugin(deps: DmemoPluginDeps = {}): Plugin {
       return undefined;
     }
 
-    /** Verbatim capture of one turn (dMemo default: `infer:false`, D17 —
-     * no second LLM call). Deduped per assistant messageID so the cadence
-     * path and the compaction-proactive path can't double-add the same turn. */
-    async function captureTurn(sessionID: string, assistantMessageId: string | undefined, reason: string): Promise<void> {
-      if (assistantMessageId) {
-        if (state.capturedMessageIds.has(assistantMessageId)) return;
-        state.capturedMessageIds.add(assistantMessageId);
-      }
-      const userText = state.lastUserText.get(sessionID) ?? '';
-      let assistantText = '';
+    /** Fetch a session's transcript and return its newest assistant message.
+     * One call per turn boundary, shared by the cadence decision, the
+     * compaction gate and the captured text — the old code re-fetched inside
+     * every `captureTurn`. */
+    async function lastAssistantTurn(
+      sessionID: string
+    ): Promise<{ info: any; text: string } | undefined> {
       try {
         const res: any = await ctx.client.session.messages({ path: { id: sessionID } });
         const messages: MessagePartsLike[] = (res?.data ?? res ?? []) as MessagePartsLike[];
         const last = lastMessageOfRole(messages, 'assistant');
-        assistantText = extractText(last?.parts as any);
+        if (!last) return undefined;
+        return { info: last.info as any, text: extractText(last.parts as any) };
       } catch {
-        // fail-open: capture whatever text we already have (user turn only)
+        // fail-open: no capture this turn, conversation proceeds normally
+        return undefined;
       }
+    }
+
+    /** Verbatim capture of one turn (dMemo default: `infer:false`, D17 —
+     * no second LLM call). Deduped per (session, assistant messageID) so the
+     * cadence, compaction-proactive and pre-compaction paths can't double-add
+     * the same turn. */
+    async function captureTurn(
+      sessionID: string,
+      assistantMessageId: string | undefined,
+      reason: string,
+      assistantText: string
+    ): Promise<void> {
+      if (assistantMessageId && !state.turns.claimCapture(sessionID, assistantMessageId)) return;
+      const userText = state.turns.userText(sessionID);
       const text = buildTurnText(userText, assistantText);
       if (!text) return;
       try {
@@ -161,35 +191,104 @@ export function createDmemoPlugin(deps: DmemoPluginDeps = {}): Plugin {
       }
     }
 
-    async function maybeCaptureForCompaction(sessionID: string, tokens: TokenUsage | undefined, providerID: string | undefined, modelID: string | undefined, assistantMessageId: string | undefined): Promise<void> {
+    /** Context-pressure capture: fires off-cadence when the transcript is
+     * close enough to the model's context window that compaction is
+     * imminent. Cooldown is per-session, like the turn counter. */
+    async function maybeCaptureForCompaction(sessionID: string, info: any, assistantText: string): Promise<void> {
+      const tokens: TokenUsage | undefined = info?.tokens
+        ? {
+            input: info.tokens.input ?? 0,
+            output: info.tokens.output ?? 0,
+            reasoning: info.tokens.reasoning ?? 0,
+            cacheRead: info.tokens.cache?.read ?? 0,
+            cacheWrite: info.tokens.cache?.write ?? 0,
+          }
+        : undefined;
       if (!tokens) return;
-      const limit = await resolveContextLimit(providerID, modelID);
+      const limit = await resolveContextLimit(info.providerID, info.modelID);
       const trigger = shouldTriggerCapture({
         totalTokens: totalTokens(tokens),
         contextLimit: limit,
-        lastCaptureAtMs: state.lastCaptureAtMs,
+        lastCaptureAtMs: state.turns.lastCaptureAtMs(sessionID),
       });
       if (!trigger) return;
-      state.lastCaptureAtMs = Date.now();
-      await captureTurn(sessionID, assistantMessageId, 'compaction-proactive');
+      state.turns.noteCaptureAt(sessionID, Date.now());
+      await captureTurn(sessionID, info.id, 'compaction-proactive', assistantText);
     }
+
+    /** One assistant turn has completed in `sessionID`. Called from the turn
+     * boundary (session idle), never from a per-step event. */
+    async function onTurnEnd(sessionID: string): Promise<void> {
+      const turn = await lastAssistantTurn(sessionID);
+      if (!turn?.info?.id) return;
+
+      // Idempotent per assistant message: OpenCode publishes the boundary
+      // under both `session.status`(idle) and the deprecated `session.idle`,
+      // and an idle with no new reply must not advance the cadence either.
+      const { shouldCapture } = state.turns.observeTurn(sessionID, turn.info.id);
+      if (shouldCapture) {
+        await captureTurn(sessionID, turn.info.id, 'cadence', turn.text);
+        return;
+      }
+      await maybeCaptureForCompaction(sessionID, turn.info, turn.text);
+    }
+
+    // F7: OpenCode's own `dispose` hook only runs on a clean plugin
+    // teardown — it is never reached on SIGTERM/SIGINT (e.g. a process
+    // manager stopping the host, or a user Ctrl-C'ing `opencode run`), so an
+    // unflushed capture is silently lost. `disposeSession` is the single
+    // flush/close path, cached so both the normal `dispose` hook and a
+    // caught signal run it at most once (idempotent — a second signal must
+    // force-quit, not re-run the flush).
+    let disposePromise: Promise<void> | undefined;
+    function disposeSession(): Promise<void> {
+      if (!disposePromise) {
+        disposePromise = (async () => {
+          try {
+            // Drain captures still in flight before flushing — see the
+            // `pendingCaptures` note above.
+            await Promise.allSettled([...pendingCaptures]);
+            await session.waitForPendingFlush();
+            await session.close();
+          } catch {
+            // fail-open on teardown too
+          }
+        })();
+      }
+      return disposePromise;
+    }
+
+    const shutdownTimeoutMs = parseShutdownTimeoutMs(process.env.DMEMO_SHUTDOWN_TIMEOUT_MS);
+    const uninstallShutdown = installGracefulShutdown({
+      dispose: disposeSession,
+      ...(shutdownTimeoutMs !== undefined ? { timeoutMs: shutdownTimeoutMs } : {}),
+      onShutdown: (report) => {
+        const dropped = (session as { droppedFlushCount?: number }).droppedFlushCount ?? 0;
+        void safeLog(
+          ctx,
+          `dmemo: ${report.signal} received — flush ${report.timedOut ? 'timed out, forcing exit' : 'completed'}` +
+            (dropped > 0 ? `; ${dropped} batch(es) previously dropped` : '')
+        );
+      },
+    });
 
     const hooks: Hooks = {
       dispose: async () => {
-        try {
-          await session.waitForPendingFlush();
-          await session.close();
-        } catch {
-          // fail-open on teardown too
-        }
+        // A normal (non-signal) teardown: stop listening for signals so a
+        // stale `disposeSession` can't fire again later, then run it.
+        uninstallShutdown();
+        await disposeSession();
       },
 
       'chat.message': async (input, output) => {
         const userText = extractText(output?.parts as any);
         if (!userText) return;
         state.msgCount++;
-        state.lastUserText.set(input.sessionID, redact(userText));
-        state.pendingContext = [];
+        state.turns.noteUserText(input.sessionID, redact(userText));
+        // Per-session reset (not a shared array — F5's invariant 4, gotcha
+        // 27): a global reset here would clear another in-flight session's
+        // still-unconsumed context.
+        state.turns.resetPendingContext(input.sessionID);
 
         if (state.memoryCount === 0 && state.msgCount === 1) {
           try {
@@ -210,7 +309,7 @@ export function createDmemoPlugin(deps: DmemoPluginDeps = {}): Plugin {
           });
           if (res.results.length > 0) {
             const lines = res.results.map((m) => `- ${m.memory}`).join('\n');
-            state.pendingContext.push(`## dMemo Memory Context\n\n${SCOPE_GUIDANCE}\n\n${lines}`);
+            state.turns.pushPendingContext(input.sessionID, `## dMemo Memory Context\n\n${SCOPE_GUIDANCE}\n\n${lines}`);
           }
         } catch {
           // fail-open: no injected context this turn, conversation proceeds normally
@@ -218,71 +317,47 @@ export function createDmemoPlugin(deps: DmemoPluginDeps = {}): Plugin {
       },
 
       'experimental.chat.messages.transform': async (_input, output) => {
-        if (state.pendingContext.length === 0 || !output?.messages?.length) return;
+        if (!output?.messages?.length) return;
         const target = output.messages[output.messages.length - 1];
         if (!target || target.info.role !== 'user' || !target.parts) return;
-        const block = state.pendingContext.join('\n\n');
-        state.pendingContext = [];
+
+        // This hook's `input` carries no `sessionID` (one plugin instance
+        // serves every session on the server — F5/gotcha 27), so the owning
+        // session must be recovered from `output.messages[].info.sessionID`
+        // itself. If it can't be determined unambiguously, drop the queued
+        // context rather than risk injecting session A's memory into
+        // session B's prompt: a missed injection degrades one answer, a
+        // misdelivered one leaks another session's private memory.
+        const sessionID = transformMessagesSessionID(output.messages);
+        if (!sessionID) {
+          await safeLog(ctx, 'dmemo: transform could not resolve an owning session — dropping any queued memory context');
+          return;
+        }
+
+        const pending = state.turns.takePendingContext(sessionID);
+        if (pending.length === 0) return;
+        const block = pending.join('\n\n');
         const ref: any = target.parts[0];
         target.parts.unshift({ ...ref, type: 'text', text: block });
       },
 
+      // Capture is driven off the TURN boundary (the session going idle), not
+      // off `message.updated`. `message.updated` fires twice per assistant
+      // message and once per tool step, so counting it never measured turns —
+      // see `sessionTurns.ts` for the measurements behind this.
       event: async ({ event }) => {
-        if (event.type === 'message.updated') {
-          const info: any = event.properties.info;
-          if (info.role !== 'assistant' || !info.finish) return;
-          state.assistantTurnCount++;
-          if (state.assistantTurnCount % 3 === 0) {
-            await captureTurn(info.sessionID, info.id, 'cadence');
-          }
-          const tokens: TokenUsage | undefined = info.tokens
-            ? {
-                input: info.tokens.input ?? 0,
-                output: info.tokens.output ?? 0,
-                reasoning: info.tokens.reasoning ?? 0,
-                cacheRead: info.tokens.cache?.read ?? 0,
-                cacheWrite: info.tokens.cache?.write ?? 0,
-              }
-            : undefined;
-          await maybeCaptureForCompaction(info.sessionID, tokens, info.providerID, info.modelID, info.id);
-          return;
-        }
-        if (event.type === 'session.idle') {
-          const sessionID = (event.properties as any)?.sessionID;
-          if (!sessionID) return;
-          try {
-            const res: any = await ctx.client.session.messages({ path: { id: sessionID } });
-            const messages: MessagePartsLike[] = (res?.data ?? res ?? []) as MessagePartsLike[];
-            const lastAssistant: any = [...messages].reverse().find((m) => m.info.role === 'assistant');
-            if (!lastAssistant) return;
-            const info = lastAssistant.info;
-            const tokens: TokenUsage | undefined = info.tokens
-              ? {
-                  input: info.tokens.input ?? 0,
-                  output: info.tokens.output ?? 0,
-                  reasoning: info.tokens.reasoning ?? 0,
-                  cacheRead: info.tokens.cache?.read ?? 0,
-                  cacheWrite: info.tokens.cache?.write ?? 0,
-                }
-              : undefined;
-            await maybeCaptureForCompaction(sessionID, tokens, info.providerID, info.modelID, info.id);
-          } catch {
-            // fail-open: idle catch-up is best-effort
-          }
-        }
+        const sessionID = turnBoundarySessionID(event as any);
+        if (!sessionID) return;
+        await tracked(onTurnEnd(sessionID));
       },
 
       'experimental.session.compacting': async (input, output) => {
         // Preserve memory across compaction: capture whatever the cadence/
         // compaction-proactive paths haven't already captured for this
         // session, right before OpenCode compacts the transcript away.
-        try {
-          const res: any = await ctx.client.session.messages({ path: { id: input.sessionID } });
-          const messages: MessagePartsLike[] = (res?.data ?? res ?? []) as MessagePartsLike[];
-          const last: any = lastMessageOfRole(messages, 'assistant');
-          if (last) await captureTurn(input.sessionID, last.info.id, 'pre-compaction');
-        } catch {
-          // fail-open
+        const turn = await lastAssistantTurn(input.sessionID);
+        if (turn?.info?.id) {
+          await captureTurn(input.sessionID, turn.info.id, 'pre-compaction', turn.text);
         }
         output.context.push(
           `dMemo has captured this session's context to persistent memory (scope="${scope}"). ` +
@@ -337,6 +412,16 @@ async function safeLog(ctx: PluginInput, message: string): Promise<void> {
   } catch {
     // best-effort; stdout/stderr would pollute the TUI, so just drop it
   }
+}
+
+/** Parse `DMEMO_SHUTDOWN_TIMEOUT_MS`; anything unusable falls back to
+ * `installGracefulShutdown`'s own default (undefined) rather than throwing —
+ * config must never break the host. */
+function parseShutdownTimeoutMs(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 0) return undefined;
+  return n;
 }
 
 const Mem0DmemoPlugin: Plugin = createDmemoPlugin();

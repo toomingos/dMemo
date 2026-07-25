@@ -58,6 +58,21 @@ Optional: `DMEMO_OPENCODE_SCOPE` overrides the default per-(user, project)
 scope string (`opencode:<osUser>:<projectDirName>`) — useful for monorepos
 where the directory name collides across projects.
 
+Optional: `DMEMO_OPENCODE_CAPTURE_EVERY` sets how many completed turns pass
+between captures. The default is `1` — **every turn is captured**; set it to
+`3` to sample every 3rd turn instead. Values that aren't a positive integer
+fall back to the default rather than throwing — config must never break the
+host.
+
+Sampling is not the cost lever it looks like. `memory.add` is local (verbatim
+under `infer: false`: one fastembed embedding + a SQLite write, no LLM call),
+and the on-chain spend comes from `flush()`, which **self-coalesces** — flushes
+are chained sequentially and each drains the journal up front, so any flush
+queued behind an in-flight upload finds an empty journal and returns without
+uploading. Cost is bounded by roughly one blob per upload round-trip (measured
+10–13.5s), not one per turn. Raising this value drops turns permanently without
+buying a proportional saving.
+
 ## Inference routing (optional, separate from the memory leg)
 
 dMemo's memory leg (embedding, encryption, 0G Storage) never requires a
@@ -105,16 +120,39 @@ Notes:
   incoming user text; `experimental.chat.messages.transform` unshifts a
   `dMemo Memory Context` text block into the newest user message if any
   results were found. Fails open (search error → transcript untouched, no
-  throw).
+  throw). The queued context between the two hooks is kept **per OpenCode
+  session** (in `SessionTurnTracker`, alongside the F5 cadence state) — one
+  plugin instance serves every session on the server, so a single shared
+  queue would let one session's injected memory leak into another's prompt
+  under interleaving. `transform`'s own input carries no `sessionID`, so the
+  owning session is recovered from `output.messages[].info.sessionID`
+  instead; if that can't be resolved unambiguously (missing, or messages
+  disagree), the queued context is **dropped**, never guessed — a missed
+  injection degrades one answer, a misdelivered one leaks another session's
+  private memory. See gotcha 27 in `TASKS.md`.
 - **Capture:** deterministic, verbatim (`infer: false` by default) capture
-  on the native `event` hook (`message.updated`, `role==='assistant' &&
-  info.finish`), every 3rd assistant turn, deduped per assistant message
-  ID. Also proactively captured pre-compaction (see below) so nothing is
-  lost right before the host prunes context.
+  on the native `event` hook, driven off the **turn boundary** — the session
+  going idle, which OpenCode emits exactly once per turn once the runner has
+  drained every queued step. Both spellings are accepted (`session.status`
+  with `status.type === "idle"`, and the deprecated-but-still-emitted
+  `session.idle`); turns are counted **per session** and deduped per
+  assistant message ID, so the overlapping pair counts once. **Every turn is
+  captured** by default; `DMEMO_OPENCODE_CAPTURE_EVERY` samples instead. Also
+  proactively captured pre-compaction (see below) so nothing is lost right
+  before the host prunes context.
+
+  > Do **not** count `message.updated` events here. It fires *twice* per
+  > assistant message and once per *step*, so a turn with one tool call
+  > emits 4 of them — measured on OpenCode 1.18.5. The previous cadence did
+  > exactly that and therefore captured 2 of every 3 turns instead of 1, and
+  > could capture a `finish:"tool-calls"` step whose text is still empty
+  > (storing a prompt with no answer). See gotcha 25 in `TASKS.md`.
 - **Compaction:** wired on the **native** `experimental.session.compacting`
   hook (not a synthetic file-writing shim). Trigger math ported from
   opencode-supermemory: token-ratio ≥ 0.80 of the model's context window
-  **and** ≥ 50,000 total tokens, with a 30s cooldown between triggers.
+  **and** ≥ 50,000 total tokens, with a 30s cooldown between triggers (the
+  cooldown clock is per-session — one plugin instance serves every session
+  on the server).
   Captures the last assistant turn and injects a short recall note
   (`dmemo_search`) into the compaction context.
 - **Manual tools:** `dmemo_search` and `dmemo_add` (two-tool convention).

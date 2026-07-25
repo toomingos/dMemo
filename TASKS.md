@@ -198,6 +198,51 @@ Hermes/Python = v1.1. Network: testnet Galileo first (D14), one-env-var mainnet 
     a dependency of publishable packages like `@dmemo/opencode-plugin`/`@dmemo/openclaw-plugin` —
     that's why the shared reader lives in `@dmemo/core`, which every host already depends on,
     rather than in the adapter.
+25. *(F5)* **`message.updated` is not a turn — it is a *step*, it fires *twice* per step, and one
+    plugin instance serves *every* session on the server.** The OpenCode capture cadence keyed off
+    `message.updated` where `info.role === "assistant" && info.finish`, tallied in a single global
+    counter, and took `% 3` as "every 3rd turn". Measured against a live OpenCode 1.18.5 server
+    (probe plugin, recorded event stream: 41 events → 4 assistant messages → 8 `finish` events →
+    **3 real turns**), that is wrong three independent ways. **(a) Double-fire:** every assistant
+    message emits `message.updated` with `finish` set twice — once before `time.completed` is
+    stamped, once after. This is by design: OpenCode's own app reducer binary-searches by message
+    id and `reconcile()`s in place *because* one id receives many `message.updated` events.
+    **(b) Steps are not turns:** one user turn emits one assistant message *per step*, so a turn
+    containing a single tool call produces `finish:"tool-calls"` then `finish:"stop"` — 2 messages,
+    4 events, for ONE turn. Capturing on the tool step is doubly wrong: that message's text parts
+    are still empty, so it stores the user prompt with **no answer** *and* burns the cadence slot
+    the real answer needed. **(c) One counter, many sessions:** the global counter interleaved
+    unrelated sessions (the old code already keyed `lastUserText` by session id — the counter just
+    hadn't followed). Net arithmetic: turn *n* yields counts 2n−1, 2n, so `%3===0` hit turns
+    2,3,5,6,8,9 — **2 of every 3** tool-free turns, drifting arbitrarily once tools were involved.
+    Replaying the recorded stream confirms it: old gate = 2 captures for 3 turns, one of them on a
+    `finish:"tool-calls"` step; new gate = the 3 real turns, each paired with the right answer.
+    **The rule: the turn boundary is the session going IDLE, never a message event.** OpenCode
+    emits it exactly once per turn, after the runner drains all queued steps (verified: the
+    2-message tool turn above produced exactly one idle). Accept **both** spellings —
+    `session.status` with `status.type === "idle"` (current) and `session.idle` (marked
+    `// deprecated` in `packages/schema/src/session-status-event.ts` but still emitted by 1.18.5) —
+    and rely on per-assistant-message idempotency (`SessionTurnTracker.observeTurn`) rather than
+    version sniffing, so the overlapping pair counts once. All cadence state is per-session and
+    LRU-bounded (`sessionTurns.ts`). Two corollaries that must not be dropped: at the idle
+    boundary the handler must read the **last** assistant message of the transcript (the answer),
+    not the message named in an event; and because plugin `event` hooks are **fire-and-forget** —
+    `hook["event"]?.({ event: input })` is called without `await`
+    (`anomalyco/opencode#16879`, open) and `opencode run` can start teardown right after
+    `session.idle` (`#15267`) — a capture kicked off at that boundary can be killed mid-flight, so
+    `dispose` (the only *awaited* teardown seam) must drain the in-flight capture set before
+    closing the session. Cadence is tunable via `DMEMO_OPENCODE_CAPTURE_EVERY` (bad values fall
+    back rather than throw — config must never break the host), but **the default is 1: capture
+    every turn.** The fork base's every-3rd-turn sampling was cargo-culted cost control that
+    doesn't apply here. `memory.add` is local (verbatim under `infer: false` — one fastembed
+    embedding + a SQLite write, no LLM call), and the on-chain spend comes from `flush()`, which
+    **self-coalesces**: flushes are chained sequentially and `runFlush` drains the journal up
+    front, so any flush queued behind an in-flight upload finds an empty journal and returns
+    before uploading (`core/src/session.ts:644`, `core/src/store/journal.ts:118`). Spend is
+    therefore bounded by ~one blob per upload round-trip (measured 10–13.5s), not one per turn —
+    sampling turns never bounded it. Dropping 2 of every 3 turns, by contrast, loses content
+    unconditionally and unrecoverably. Do not "optimize" this back to 3 without measuring flush
+    counts, not turn counts.
 26. *(F6)* **A Merkle-valid, fully downloadable, structurally-decodable chain head can still be
     corrupt — gotcha 20's walk-back only covered dangling/unretrievable pointers, not this.**
     `DmemoSession.open()`'s apply/replay loop originally had *zero* error handling: any
@@ -245,6 +290,39 @@ Hermes/Python = v1.1. Network: testnet Galileo first (D14), one-env-var mainnet 
     degrade to the older candidate, unchanged. This covers the mixed case too: head `corrupt`,
     next candidate `transient`, next-next candidate good — still refuses, because a later retry
     might recover the `transient` one, which is newer than the candidate that resolved.
+27. *(F8, OpenCode plugin)* **The rule from gotcha 25 — "one plugin instance serves every
+    session on the server, so all per-session state must be keyed by session" — applies to the
+    queued *memory-injection context*, not just capture cadence, and it was missed the first
+    time.** `chat.message` searches memory and queues a `dMemo Memory Context` block;
+    `experimental.chat.messages.transform` later drains that queue and unshifts it into the newest
+    user message. F5 rekeyed the cadence counters/dedupe/cooldown/last-user-text onto
+    `SessionTurnTracker` but left `pendingContext: string[]` as a single array on the shared
+    `state` object — a privacy bug, not just a correctness one: session A's retrieved memory
+    (the user's own private history) could be drained into session B's prompt under interleaving
+    (A's `chat.message` queues context → B's `chat.message` resets the shared array and queues
+    its own → A's `transform` call drains what is now B's context, or vice versa). Verified against
+    the actual server, not assumed: `experimental.chat.messages.transform`'s `input` carries no
+    `sessionID` (`packages/plugin/src/index.ts` in anomalyco/opencode), but both its call sites
+    (`packages/opencode/src/session/prompt.ts`'s `runLoop(sessionID)`, which derives `msgs` from
+    `MessageV2.filterCompactedEffect(sessionID)`, and `.../session/compaction.ts`, scoped to its own
+    `input.sessionID`) build `output.messages` from exactly one session's transcript, and every
+    `Message` (`UserMessage | AssistantMessage`) carries a non-optional `sessionID`. Fixed by
+    extending `SessionTurnTracker`'s existing per-session, LRU-bounded record (`sessionTurns.ts`) —
+    not a second registry — with `pendingContext: string[]` plus
+    `resetPendingContext`/`pushPendingContext`/`takePendingContext`, and by recovering the transform
+    call's owning session from `output.messages[].info.sessionID` via `transformMessagesSessionID()`
+    rather than trusting a single message: it checks every message in the array agrees before
+    resolving an owner. The rule going forward: **the owning session must be structurally
+    re-derived from the hook's own data, never assumed from the contract holding**, and if it can't
+    be resolved unambiguously (a message missing `sessionID`, or messages disagreeing — contract
+    drift the plugin doesn't control), the fix drops the queued context rather than deliver it to a
+    guessed session — a missed injection degrades one answer, a misdelivered one leaks another
+    session's private memory. This mirrors gotcha 25's "no config-level escape" posture: fail-closed
+    on ambiguity, never fail-open on a privacy-sensitive path. **Invariant for this plugin going
+    forward: ALL per-session state — cadence AND pending injection context — is keyed by session
+    and lives in the one LRU-bounded `SessionTurnTracker`, because one plugin instance serves the
+    whole server.**
+
 28. *(F7 follow-up)* **F7's `installGracefulShutdown` (`packages/core/src/runtime/shutdown.ts`)
     was written host-agnostic but only wired into the two long-lived plugin hosts (OpenCode,
     OpenClaw) at first — Claude Code's and Codex's hook processes (`packages/node-adapter`) are
