@@ -1,0 +1,28 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+*.tsbuildinfo
+
+# secrets — never commit keys or env files
+.env
+.env.*
+*.pem
+
+# local embedding model caches (large, re-downloadable)
+local_cache/
+
+# benchmark artifacts: LoCoMo dataset is CC BY-NC 4.0 — must not be redistributed;
+# results/checkpoints embed dataset content
+benchmarks/results/
+benchmarks/local_cache/
+
+# packed tarballs
+*.tgz
+
+# OS / editor noise
+.DS_Store
+
+# Claude Code local session config
+.claude/
