@@ -1,0 +1,1 @@
+{"version":3,"file":"openclaw.d.ts","sourceRoot":"","sources":["../../src/installers/openclaw.ts"],"names":[],"mappings":"AAsBA,MAAM,WAAW,qBAAqB;IACpC,SAAS,EAAE,OAAO,CAAC;IACnB,SAAS,EAAE,OAAO,CAAC;IACnB,MAAM,CAAC,EAAE,MAAM,CAAC;IAChB,KAAK,CAAC,EAAE,MAAM,CAAC;IACf,kBAAkB,EAAE,MAAM,CAAC;CAC5B;AAkBD,wBAAgB,eAAe,CAAC,GAAG,GAAE,MAAM,CAAC,UAAwB,GAAG,qBAAqB,CAgB3F"}

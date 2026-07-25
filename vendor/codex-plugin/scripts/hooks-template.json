@@ -1,0 +1,52 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "DMEMO_HOOK=1 node \"${PLUGIN_ROOT}/scripts/session-start.cjs\"",
+            "statusMessage": "Loading dMemo context...",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "DMEMO_HOOK=1 node \"${PLUGIN_ROOT}/scripts/user-prompt-submit.cjs\"",
+            "statusMessage": "Checking dMemo relevance...",
+            "timeout": 12
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "DMEMO_HOOK=1 node \"${PLUGIN_ROOT}/scripts/stop.cjs\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "DMEMO_HOOK=1 node \"${PLUGIN_ROOT}/scripts/pre-compact.cjs\"",
+            "statusMessage": "dMemo pre-compaction capture...",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,73 @@
+// T4.1 step 4 — Claude Code leg. No config file to hand-edit here: the
+// `~/.dmemo/config.json` this CLI already wrote (step 3) is picked up
+// automatically by the plugin's hooks via `@dmemo/node-adapter`'s
+// `loadDmemoEnv()` — Claude Code's own `userConfig.privateKey` prompt
+// (`plugin.json`) is an alternative entry point, not a requirement. This
+// installer's only job is getting the `dmemo` plugin itself installed.
+//
+// Per `research/followup-claude-code-packaging.md` §2, `claude plugin
+// marketplace add <source>` / `claude plugin install <plugin>@<marketplace>`
+// are documented as "scriptable" CI-safe CLI subcommands (mirrors the
+// interactive `/plugin ...` slash commands) — so this installer attempts
+// them automatically when the `claude` binary is present, but treats
+// failure as non-fatal and always prints the manual fallback: the
+// `dmemo-ai/claude-dmemo` marketplace repo doesn't exist on GitHub yet
+// (T4.2 is local-only, by design — no repo/publish in this phase), so a
+// live run today WILL fail here until a human completes RELEASE.md.
+import { execFileSync } from 'node:child_process';
+const MARKETPLACE_SOURCE = 'dmemo-ai/claude-dmemo';
+const MARKETPLACE_NAME = 'dmemo-plugins';
+const PLUGIN_ID = 'dmemo';
+function manualInstructions() {
+    return [
+        'Claude Code: install the dMemo plugin (once dmemo-ai/claude-dmemo is published):',
+        `  claude plugin marketplace add ${MARKETPLACE_SOURCE}`,
+        `  claude plugin install ${PLUGIN_ID}@${MARKETPLACE_NAME}`,
+        '  (or inside a Claude Code session: /plugin marketplace add ' +
+            `${MARKETPLACE_SOURCE}` +
+            ' then /plugin install ' +
+            PLUGIN_ID +
+            ')',
+        'No private key to paste: this CLI already wrote ~/.dmemo/config.json,',
+        "which the plugin's hooks read automatically.",
+    ].join('\n');
+}
+function localDevInstructions(pluginDir) {
+    return [
+        'Local plugin path option (no marketplace, e.g. testing a checkout of',
+        'the dMemo monorepo before it is published):',
+        `  claude plugin marketplace add ${pluginDir}`,
+        `  claude plugin install ${PLUGIN_ID}@${MARKETPLACE_NAME}`,
+        '  # or launch Claude Code pointed straight at the plugin directory:',
+        `  claude --plugin-dir ${pluginDir}`,
+    ].join('\n');
+}
+export function installClaudeCode(env = process.env) {
+    let attempted = false;
+    let succeeded = false;
+    let output;
+    let error;
+    try {
+        execFileSync('claude', ['--version'], { stdio: 'ignore', env });
+        attempted = true;
+        const add = execFileSync('claude', ['plugin', 'marketplace', 'add', MARKETPLACE_SOURCE], {
+            encoding: 'utf8',
+            env,
+        });
+        const install = execFileSync('claude', ['plugin', 'install', `${PLUGIN_ID}@${MARKETPLACE_NAME}`], { encoding: 'utf8', env });
+        output = `${add}\n${install}`;
+        succeeded = true;
+    }
+    catch (err) {
+        error = err instanceof Error ? err.message : String(err);
+    }
+    return {
+        attempted,
+        succeeded,
+        output,
+        error,
+        manualInstructions: manualInstructions(),
+        localDevInstructions,
+    };
+}
+//# sourceMappingURL=claudeCode.js.map

@@ -1,0 +1,1 @@
+{"version":3,"file":"codex.d.ts","sourceRoot":"","sources":["../../src/installers/codex.ts"],"names":[],"mappings":"AA6CA,MAAM,WAAW,kBAAkB;IACjC,kBAAkB,EAAE,MAAM,CAAC;IAC3B,SAAS,EAAE,MAAM,CAAC;IAClB,MAAM,EAAE,MAAM,CAAC;CAChB;AAED,wBAAgB,YAAY,CAAC,GAAG,GAAE,MAAM,CAAC,UAAwB,GAAG,kBAAkB,CAyBrF;AAED,wBAAgB,cAAc,CAAC,GAAG,GAAE,MAAM,CAAC,UAAwB,GAAG,MAAM,CAW3E"}

@@ -1,0 +1,43 @@
+{
+  "name": "dmemo",
+  "version": "0.2.0",
+  "description": "dMemo onboarding CLI — `npx dmemo setup` generates/imports a wallet, writes ~/.dmemo/config.json, and wires the memory leg into whichever coding agent hosts (Claude Code, OpenCode, OpenClaw, Codex) are detected on the machine. Zero interactive web steps for the memory leg.",
+  "type": "module",
+  "bin": {
+    "dmemo": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ethers": "^6.17.0"
+  },
+  "license": "MIT",
+  "keywords": [
+    "dmemo",
+    "0g",
+    "memory",
+    "cli",
+    "setup",
+    "claude-code",
+    "opencode",
+    "openclaw",
+    "codex"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/toomingos/dMemo.git"
+  },
+  "dmemo": {
+    "sourceCommit": "b9b6e1b",
+    "branch": "cli"
+  }
+}
