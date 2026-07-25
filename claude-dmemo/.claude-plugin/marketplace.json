@@ -1,0 +1,18 @@
+{
+  "name": "dmemo-plugins",
+  "description": "dMemo plugins for Claude Code — private, encrypted, portable memory backed by 0G Storage",
+  "owner": {
+    "name": "dMemo"
+  },
+  "plugins": [
+    {
+      "name": "dmemo",
+      "source": "./plugin",
+      "description": "Private, encrypted, cross-session memory for Claude Code, backed by 0G Storage",
+      "category": "productivity",
+      "author": {
+        "name": "dMemo"
+      }
+    }
+  ]
+}

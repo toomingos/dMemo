@@ -1,0 +1,20 @@
+{
+  "name": "dmemo",
+  "displayName": "dMemo",
+  "version": "0.1.0",
+  "description": "Private, encrypted, cross-session memory for Claude Code — captured turns are encrypted client-side and stored on 0G Storage; only your wallet key can decrypt them.",
+  "author": {
+    "name": "dMemo"
+  },
+  "homepage": "https://github.com/dmemo-ai/claude-dmemo",
+  "repository": "https://github.com/dmemo-ai/claude-dmemo",
+  "license": "MIT",
+  "keywords": ["claude-code", "plugin", "memory", "encrypted", "0g", "privacy"],
+  "userConfig": {
+    "privateKey": {
+      "type": "string",
+      "description": "dMemo wallet private key (0x...). Encrypts/decrypts your memory locally; only its ciphertext ever leaves this machine (written to 0G Storage). Leave blank to skip — dMemo fails open (no-op) until configured. Run `npx dmemo setup` for a guided wallet setup instead of pasting a key here.",
+      "sensitive": true
+    }
+  }
+}
