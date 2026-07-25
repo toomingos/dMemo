@@ -1,0 +1,55 @@
+{
+  "name": "@dmemo/core",
+  "version": "0.1.0",
+  "description": "dMemo core SDK — mem0-oss embedded memory engine, journaling 0G Storage flush/restore, local embedder, session lifecycle, crypto-shred forget.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.js",
+    "!dist/**/*.test.js.map",
+    "!dist/**/*.test.d.ts",
+    "!dist/**/*.test.d.ts.map",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test $(find dist -name '*.test.js')",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@dmemo/blob-spec": "workspace:*",
+    "@0gfoundation/0g-ts-sdk": "^1.2.8",
+    "ethers": "^6.17.0",
+    "mem0ai": "^3.1.1",
+    "better-sqlite3": "^13.0.1",
+    "pg": "^8.22.0",
+    "fastembed": "^2.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "@types/node": "^20.14.0",
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/pg": "^8.11.10"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dmemo-ai/dmemo.git",
+    "directory": "packages/core"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": ["dmemo", "0g", "memory", "mem0", "encrypted", "decentralized-storage"]
+}
