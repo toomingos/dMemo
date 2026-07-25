@@ -36,7 +36,11 @@ const ENTRIES = [
 ];
 
 // Native modules that cannot be esbuild-inlined (see header comment).
-const NATIVE_EXTERNAL = ['better-sqlite3', 'fastembed', 'onnxruntime-node', 'bufferutil', 'utf-8-validate', 'pg-native'];
+// Lives in externals.json because the OpenClaw local-install staging bundle
+// (scripts/install-adapters-local.mjs) must use the identical list — two
+// copies drifting apart would surface as a runtime "Cannot find package"
+// in whichever host was built against the stale one.
+const NATIVE_EXTERNAL = require('./externals.json').native;
 
 // mem0ai/oss's `VectorStoreFactory`/`EmbedderFactory`/`LLMFactory` lazily
 // `import()` every optional backend it supports (Qdrant, Pinecone, Ollama,
@@ -48,41 +52,7 @@ const NATIVE_EXTERNAL = ['better-sqlite3', 'fastembed', 'onnxruntime-node', 'buf
 // runtime would `throw` inside mem0ai's own factory, exactly as it would
 // unbundled). Exhaustive list taken from every `import("...")` in
 // mem0ai@3.1.1's dist/oss/index.mjs.
-const OSS_OPTIONAL_BACKENDS = [
-  '@anthropic-ai/sdk',
-  '@aws-sdk/client-bedrock-runtime',
-  '@aws-sdk/client-neptune-graph',
-  '@aws-sdk/client-s3vectors',
-  '@azure/identity',
-  '@azure/search-documents',
-  '@databricks/sql',
-  '@elastic/elasticsearch',
-  '@google-cloud/aiplatform',
-  '@google/genai',
-  '@huggingface/transformers',
-  '@langchain/core/documents',
-  '@langchain/core/messages',
-  '@mistralai/mistralai',
-  '@mochow/mochow-sdk-node',
-  '@opensearch-project/opensearch',
-  '@pinecone-database/pinecone',
-  '@qdrant/js-client-rest',
-  '@supabase/supabase-js',
-  '@turbopuffer/turbopuffer',
-  '@upstash/vector',
-  'cassandra-driver',
-  'chromadb',
-  'cloudflare',
-  'cohere-ai',
-  'groq-sdk',
-  'iovalkey',
-  'mongodb',
-  'mysql2/promise',
-  'ollama',
-  'redis',
-  'weaviate-client',
-  'zeroentropy',
-];
+const OSS_OPTIONAL_BACKENDS = require('./externals.json').ossOptionalBackends;
 
 const EXTERNAL = [...NATIVE_EXTERNAL, ...OSS_OPTIONAL_BACKENDS];
 

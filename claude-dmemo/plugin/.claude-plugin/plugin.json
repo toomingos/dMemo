@@ -13,6 +13,7 @@
   "userConfig": {
     "privateKey": {
       "type": "string",
+      "title": "dMemo wallet private key",
       "description": "dMemo wallet private key (0x...). Encrypts/decrypts your memory locally; only its ciphertext ever leaves this machine (written to 0G Storage). Leave blank to skip — dMemo fails open (no-op) until configured. Run `npx dmemo setup` for a guided wallet setup instead of pasting a key here.",
       "sensitive": true
     }

@@ -1,3 +1,7 @@
+import nodeFs from "node:fs";
+import nodeOs from "node:os";
+import nodePath from "node:path";
+
 // Config surface for `plugins.entries.dmemo.config` (matches the
 // apiKey/baseUrl-style config block pattern every OpenClaw memory backend
 // uses, e.g. Honcho's `plugins.entries.entries["openclaw-honcho"].config` —
@@ -13,6 +17,22 @@
 // noted in `TASKS.md`'s T5.3 host-budget table.
 export const DEFAULT_RECALL_TIMEOUT_MS = 10_000;
 export const DEFAULT_TOP_K = 5;
+
+/** Same `~/.dmemo/config.json` every other dMemo host adapter reads (written
+ * by `npx dmemo setup`; flat map of `DMEMO_*` env-var names). Without this,
+ * OpenClaw would be the only host that needs the key pasted into its own
+ * config or exported into its daemon's environment — the config block and
+ * `DMEMO_PRIVATE_KEY` still win over it, in that order. Never throws:
+ * a missing/corrupt file is the normal "not set up yet" state. */
+function dmemoConfigFile(): Record<string, string> {
+  try {
+    const home = process.env.DMEMO_HOME ?? nodePath.join(nodeOs.homedir(), ".dmemo");
+    const parsed: unknown = JSON.parse(nodeFs.readFileSync(nodePath.join(home, "config.json"), "utf8"));
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
 
 export type RecallStrategy = "always" | "smart" | "manual";
 
@@ -51,7 +71,11 @@ export interface DmemoOpenClawConfig {
 }
 
 function str(v: unknown, fallback: string): string {
-  return typeof v === "string" && v.length > 0 ? v : fallback;
+  // OpenClaw interpolates `"${FOO}"` config values from the environment and
+  // leaves the placeholder verbatim when the var is unset — treat that as
+  // absent rather than passing a literal "${DMEMO_PRIVATE_KEY}" downstream.
+  if (typeof v === "string" && v.length > 0 && !/^\$\{[A-Z0-9_]+\}$/.test(v)) return v;
+  return fallback;
 }
 function num(v: unknown, fallback: number): number {
   return typeof v === "number" && Number.isFinite(v) ? v : fallback;
@@ -78,10 +102,13 @@ export function parseConfig(raw: Record<string, unknown> | undefined | null): Dm
     // in one place, not delegated to config plumbing.
   }
 
+  const file = dmemoConfigFile();
+  const network = cfg.network ?? file.DMEMO_NETWORK;
+
   return {
-    privateKey: str(cfg.privateKey, ""),
-    scope: str(cfg.scope, "default"),
-    network: cfg.network === "mainnet" ? "mainnet" : "testnet",
+    privateKey: str(cfg.privateKey, str(process.env.DMEMO_PRIVATE_KEY, str(file.DMEMO_PRIVATE_KEY, ""))),
+    scope: str(cfg.scope, str(file.DMEMO_SCOPE, "default")),
+    network: network === "mainnet" ? "mainnet" : "testnet",
     recall: {
       strategy,
       topK: num(recall.topK, DEFAULT_TOP_K),

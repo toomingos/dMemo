@@ -2,6 +2,16 @@
 // @dmemo/core module loaded.
 import type { DmemoSessionLike } from "./index.js";
 
+// `parseConfig` falls back to the ambient `DMEMO_PRIVATE_KEY` env var and
+// `~/.dmemo/config.json` so OpenClaw isn't the only host needing the key
+// pasted into its own config. That fallback would otherwise make these
+// tests machine-dependent: on a developer box that has actually run
+// `dmemo setup`, the "no privateKey configured" fail-open case silently
+// becomes a *configured* case and the assertion flips. Point DMEMO_HOME at
+// a path that cannot exist and clear the env var, before any test body runs.
+process.env.DMEMO_HOME = "/nonexistent/dmemo-home-for-tests";
+delete process.env.DMEMO_PRIVATE_KEY;
+
 export function makeMockSession(
   searchResults: Array<{ memory?: string; score?: number }> = [],
 ) {

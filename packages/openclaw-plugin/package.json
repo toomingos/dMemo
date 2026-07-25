@@ -14,6 +14,10 @@
   "engines": {
     "node": ">=18"
   },
+  "//openclaw": "Pre-runtime discovery metadata MUST live in package.json under an `openclaw` block, not in openclaw.plugin.json — `openclaw plugins install` hard-fails with 'package.json missing openclaw.extensions' without it (docs/plugins/manifest.md 'package.json fields that affect discovery'; docs/help/troubleshooting.md). openclaw.plugin.json remains the runtime manifest (id/kind/config schema) and is still shipped.",
+  "openclaw": {
+    "extensions": ["./dist/index.js"]
+  },
   "files": [
     "dist",
     "!dist/**/*.test.js",
