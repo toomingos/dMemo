@@ -1,100 +1,118 @@
 # Demo video — script & shot list
 
-Target: **3:30** (requirement window is 2:00–4:00). ~490 words of narration at a
-comfortable pace. One take of the live demo is 30–35 s of terminal time, so there
-is room to breathe.
+Target: **3:30** (requirement window is 2:00–4:00). The story arc: **install in one
+command → an agent that remembers you → proof that it's private and unkillable.**
+Ease of install is the star of act one.
 
 ## Recording setup (meets the submission requirements)
 
 - **Resolution**: record the full screen on a Retina display (QuickTime → File →
   New Screen Recording, or OBS). Anything ≥ 1280×720 output qualifies; a Mac
   screen recording is comfortably above that.
-- **Audio**: built-in or headset mic, quiet room, **no music**. Speak the
-  narration below — clear voice audio is a hard requirement.
-- **Terminal**: dark theme, font size 16–18 pt, window ≈ 110 columns so the demo
-  banners don't wrap. Hide other windows/notifications (macOS Focus mode on).
-- **Dry-run first**: run `pnpm demo` once before recording so the fastembed
-  model cache is warm and you know the run completes (~35 s). Each run costs
-  ~0.0012 0G testnet plus a 0.05 0G throwaway-wallet funding transfer.
-- Have two browser tabs pre-opened: the GitHub repo README (architecture
-  diagram visible) and `docs/disclosure.md`.
+- **Audio**: built-in or headset mic, quiet room, **no music**. Clear voice audio
+  is a hard requirement — speak the narration below.
+- **Terminal**: dark theme, font size 16–18 pt, window ≈ 110 columns so banners
+  don't wrap. Hide notifications (macOS Focus mode on).
+- **Dry-run everything once** before recording: the setup flow, and `pnpm demo`
+  (warms the fastembed model cache; a run costs ~0.0012 0G testnet plus a 0.05 0G
+  throwaway-wallet funding transfer).
+
+### The install command on camera
+
+- **If published to npm** (best): `npx dmemo setup`
+- **If not yet published**: pack it locally first, off camera:
+  `cd packages/setup-cli && npm pack --pack-destination ~/Desktop` — then on
+  camera run `npx ~/Desktop/dmemo-0.1.0.tgz setup`. Same code, honest framing
+  ("this ships as npx dmemo setup").
+
+To make the host-detection moment pop, have at least Claude Code installed (it
+will be) so setup visibly finds and wires it. `--check-balance` makes the faucet
+step resolve on screen. If you want a guaranteed-smooth take, pre-fund the wallet
+and use `--import-key` off camera in rehearsal to learn the prompt rhythm.
 
 ## Timeline
 
 | Time | Shot | What's on screen |
 |---|---|---|
-| 0:00–0:25 | Hook | README top: title + "Private, decentralized, plug-and-play memory" |
-| 0:25–0:55 | Architecture | README "How it works" ASCII flow |
-| 0:55–2:50 | **Live demo** | Terminal: `pnpm demo` (narrate over each stage) |
-| 2:50–3:15 | Honesty + numbers | `docs/disclosure.md`, then `docs/benchmarks.md` table |
+| 0:00–0:20 | Hook | README top: "Private, decentralized, plug-and-play memory" |
+| 0:20–1:20 | **Act 1 — Install** | Terminal: `npx dmemo setup`, prompts, host detection |
+| 1:20–1:45 | Act 2 — It just works | Claude Code (or any host) opens; memory adapter active |
+| 1:45–2:55 | Act 3 — X-ray (`pnpm demo`) | Terminal: encrypt → flush → ciphertext proof → restore |
+| 2:55–3:15 | Numbers + honesty | `docs/benchmarks.md` table, flash `docs/disclosure.md` |
 | 3:15–3:30 | Close | README package table / repo root |
 
 ## Narration (word-for-word)
 
 ### 0:00 — Hook (README visible)
 
-> Every AI agent you use today has amnesia — and the ones that don't, store your
-> life on someone else's server. This is dMemo: private, decentralized,
-> plug-and-play memory for AI agents like Claude Code, Codex, OpenCode and
-> OpenClaw. Your agent's memory becomes something *you* own — because it's keyed
-> to your wallet, not to an account.
+> Every AI agent you use today has amnesia — and the ones that don't, keep your
+> life on someone else's server. This is dMemo: private, decentralized memory for
+> agents like Claude Code, Codex, OpenCode and OpenClaw — and the whole point is
+> that it's plug-and-play. Let me show you the entire setup, from zero.
 
-### 0:25 — Architecture (scroll to the ASCII diagram)
+### 0:20 — Act 1: Install (terminal, type the setup command, hit enter)
 
-> The design is simple. Memories are extracted and embedded entirely on your
-> machine using mem0 and a local embedding model — no API calls. They're
-> journaled, encrypted to your wallet's public key, and flushed to 0G Storage as
-> an append-only chain of blobs. The only thing that ever leaves your laptop is
-> ciphertext. Next session — on any machine — the pointer is resolved straight
-> from chain logs, every blob is Merkle-verified against its on-chain root,
-> decrypted, and replayed. Let me show you the whole thing live, on the 0G
-> testnet, in thirty seconds.
+> One command. No account, no sign-up, no API key — because in dMemo, a wallet
+> *is* your memory identity.
 
-### 0:55 — Live demo (switch to terminal, type `pnpm demo`, hit enter)
+As the wallet step runs:
 
-While stage 1–2 runs:
+> It generates a wallet — or imports one — and points me at the testnet faucet
+> for a few free tokens. That funding is the only setup step that isn't instant.
 
-> No accounts, no server — a wallet key *is* the memory identity. Here a fresh
-> wallet gets funded on the 0G Galileo testnet… and now the agent learns six
-> things about me — my package manager, my deploy rules, even a secret codeword:
-> octopus-umbrella. Watch the recall check: ask it about package managers, it
-> finds the pnpm memory. So far, nothing has left this machine.
+As host detection runs:
+
+> Now watch this: it scans my machine for agent hosts — finds Claude Code, Codex,
+> OpenCode, OpenClaw — and wires the memory adapter into each one it detects.
+> Config lands in one file in my home directory. That's the whole install.
+
+### 1:20 — Act 2: It just works (open Claude Code briefly)
+
+> From this moment, my agent remembers. I can tell Claude Code my preferences
+> today, and next week — on a different laptop, with nothing but my wallet key —
+> the same memories come back. No dMemo server exists that could lose them, leak
+> them, or lock me out. Sounds like magic, so let's X-ray it.
+
+### 1:45 — Act 3: X-ray (terminal, run `pnpm demo`)
+
+While stages 1–2 run:
+
+> This is the same pipeline the adapters use, live on the 0G testnet. A fresh
+> wallet, an agent learning six facts about me — extracted and embedded entirely
+> on this laptop, including a secret codeword: octopus-umbrella. Recall works.
+> And so far, nothing has left this machine.
 
 When stage 3 prints (flush):
 
-> Now the flush. The memory delta is encrypted to my wallet key and uploaded to
-> 0G Storage — there's the Merkle root, sixteen kilobytes, and the cost: about a
-> tenth of a cent.
+> Now the flush: the memory delta is encrypted to my wallet key and pushed to 0G
+> Storage. There's the Merkle root — and the cost: about a tenth of a cent.
 
 When stage 4 prints (ciphertext proof):
 
-> Don't take privacy on faith — verify it. We download the raw on-chain bytes:
-> pure ciphertext. We grep them for the secret codeword: not found. And a
-> stranger's wallet trying to decrypt it gets sixteen kilobytes of unparseable
-> garbage. No key, no plaintext.
+> Don't take privacy on faith. We pull the raw on-chain bytes: pure ciphertext.
+> Grep them for the codeword — not found. A stranger's wallet trying to decrypt
+> gets sixteen kilobytes of unparseable garbage. No key, no plaintext.
 
 When stage 5 prints (restore):
 
-> Now the punchline. Session closed, local state wiped — imagine this laptop at
-> the bottom of a river. I open a new session with nothing but the wallet key: it
-> finds the pointer in the chain logs, downloads, Merkle-verifies, decrypts and
-> replays — in about three seconds. Same question, same answer, identical score.
-> Byte-for-byte memory survival.
+> The punchline: local state wiped — imagine this laptop at the bottom of a
+> river. A new session, armed with nothing but the key, finds the pointer in the
+> chain logs, Merkle-verifies, decrypts, replays — three seconds — and answers
+> the same question with the identical memory, identical score.
 
-### 2:50 — Honesty + numbers (switch to disclosure.md, then benchmarks.md)
+### 2:55 — Numbers + honesty (benchmarks.md, flash disclosure.md)
 
-> We're honest about the limits: the disclosure doc spells out exactly what
-> dMemo does and doesn't protect — on-chain metadata, key loss, what "forget"
-> really means. And the numbers are measured, not promised: cold restore around
-> three seconds, a flush around ten — fire-and-forget, so the agent never waits —
-> all verified live on testnet, plus a LoCoMo benchmark proving retrieval is
-> invariant across the flush-wipe-restore cycle.
+> The numbers are measured, not promised: cold restore around three seconds,
+> flushes fire-and-forget so the agent never waits, and a LoCoMo benchmark shows
+> retrieval is invariant across the flush-wipe-restore cycle. And the disclosure
+> doc says plainly what dMemo does *not* protect — we'd rather you trust the
+> parts we can prove.
 
 ### 3:15 — Close (back to README)
 
-> Nine packages, one command to onboard — `npx dmemo setup` — with adapters for
-> Claude Code, Codex, OpenCode and OpenClaw. dMemo: your agent remembers, and
-> only you can read why. Thanks for watching.
+> One command to install. Four hosts supported. Memory that only you can read
+> and no one can take away. dMemo — your agent remembers, and it answers to you.
+> Thanks for watching.
 
 ## Fallback
 
