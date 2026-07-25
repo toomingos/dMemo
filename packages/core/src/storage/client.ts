@@ -505,17 +505,4 @@ export class StorageClient {
     };
     savePointerCacheEntry(this.pointerCachePath, entry);
   }
-
-  /** Retire the in-flight/abandoned upload marker (see `AbandonedUploadEntry`). */
-  clearAbandonedUploadMarker(): void {
-    clearUploadMarker(this.pointerCachePath, this.network.network, this.wallet.address);
-  }
-
-  /** Newest pointer only (back-compat convenience over resolveCandidates). */
-  async resolveLatest(): Promise<ResolvedPointer | null> {
-    const [latest] = await this.resolveCandidates(1);
-    if (!latest) return null;
-    this.savePointer(latest);
-    return latest;
-  }
 }

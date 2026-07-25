@@ -1,0 +1,72 @@
+name: CI
+
+# Nothing in this repo ran the test suite automatically before this file
+# existed — the three install-time guards (bundle shape, native postinstall,
+# StorageClient stdout purity) only fired when someone remembered to type
+# `pnpm test`. They exist to catch failures that surface at *install* time on
+# a real host, which is exactly the class of bug that gets missed locally.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # A newer push to the same ref makes the in-flight run irrelevant.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # macOS, deliberately — not a default. `scripts/native-postinstall-guard.test.mjs`
+    # asserts against the platform binaries actually resolved on the machine it
+    # runs on: better-sqlite3's `prebuilds/darwin-arm64.node`, onnxruntime-node's
+    # `bin/napi-v3/darwin/`, and `@anush008/tokenizers-darwin-universal` (pnpm
+    # installs only the optional platform variant matching the host, so the
+    # linux/win32 packages simply aren't present to check). On ubuntu those
+    # assertions fail for the wrong reason. darwin-arm64 is also where dMemo is
+    # developed and installed, so this is the platform whose install path matters.
+    runs-on: macos-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        # Version comes from the "packageManager" field in package.json.
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        # Frozen: a lockfile that doesn't match package.json should fail the
+        # build, not get silently resolved into something else.
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Test
+        # Covers every workspace package plus the root-level guards (test:root).
+        # No network, no 0G spend — the live integration scripts under
+        # packages/integration-tests/scripts are run by hand, deliberately,
+        # because they cost real testnet funds.
+        run: pnpm test
+
+      - name: Check committed build artifacts are up to date
+        # The hook bundles under claude-dmemo/plugin/scripts and their vendored
+        # copies in packages/setup-cli/vendor are tracked build output. They went
+        # stale at least once (bundles built before the last source edit), which
+        # is invisible locally and ships a plugin that doesn't match its source.
+        # `pnpm run build` above regenerates them; if that produces a diff, the
+        # committed artifacts were stale.
+        run: |
+          if ! git diff --quiet -- claude-dmemo/plugin/scripts packages/setup-cli/vendor; then
+            echo "::error::Committed build artifacts are stale. Run 'pnpm run build' and commit the result."
+            git --no-pager diff --stat -- claude-dmemo/plugin/scripts packages/setup-cli/vendor
+            exit 1
+          fi
+          echo "Committed build artifacts match a fresh build."

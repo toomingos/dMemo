@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 // Local pointer cache (~/.dmemo/pointer-cache.json). Pure soft optimization —
-// losing it must never lose data (T1.2): resolveLatest() falls back to a
+// losing it must never lose data (T1.2): resolveCandidates() falls back to a
 // full eth_getLogs scan when the cache is missing, corrupt, or stale.
 
 export interface PointerCacheEntry {
@@ -96,12 +96,37 @@ function writeCacheKey(cachePath: string, key: string, value: PointerCacheEntry 
   }
 }
 
-/** Note an upload as in flight from `fromBlock`, before its tx can be mined. */
+/**
+ * Note an upload as in flight from `fromBlock`, before its tx can be mined.
+ *
+ * `fromBlock` only ever moves backwards. It marks the earliest block from
+ * which this wallet has wreckage we have not yet settled, and wreckage
+ * accumulates: abandon an upload at block 100, abandon another at block 200,
+ * and overwriting with 200 would quietly un-explain the pointer at 100 —
+ * which is still in the Submit-log scan window and would wedge restore all
+ * over again. Only a confirmed upload settles the range (see
+ * `clearUploadMarker`).
+ */
 export function recordUploadStarted(cachePath: string, entry: Omit<AbandonedUploadEntry, 'abandonedAt' | 'detail'>): void {
-  writeCacheKey(cachePath, abandonedKey(entry.network, entry.wallet), entry);
+  const existing = getAbandonedUpload(cachePath, entry.network, entry.wallet);
+  writeCacheKey(cachePath, abandonedKey(entry.network, entry.wallet), {
+    ...entry,
+    fromBlock: existing ? Math.min(existing.fromBlock, entry.fromBlock) : entry.fromBlock,
+    startedAt: existing ? existing.startedAt : entry.startedAt,
+  });
 }
 
-/** The upload confirmed: its pointer is real, so drop the in-flight marker. */
+/**
+ * An upload confirmed. Its pointer becomes the newest cached one, so the next
+ * `resolveCandidates()` scan starts above every dangling pointer we left
+ * behind — they leave the candidate window entirely and the marker has
+ * nothing left to explain.
+ *
+ * This is the only thing that retires the marker. In particular a successful
+ * *restore* must not: it walks back past the wreckage without writing
+ * anything, so the wreckage is still sitting in the scan window and still
+ * needs explaining next time.
+ */
 export function clearUploadMarker(cachePath: string, network: string, wallet: string): void {
   writeCacheKey(cachePath, abandonedKey(network, wallet), null);
 }

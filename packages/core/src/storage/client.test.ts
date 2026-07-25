@@ -212,7 +212,7 @@ test('downloadAndVerify(): stdout stays clean during a real Merkle-verify + decr
  * contract, with the reason each is excused from needing its own direct
  * invocation below. */
 const KNOWN_NON_PUBLIC: Record<string, string> = {
-  getLogsPaginated: 'TS-private RPC-pagination helper; exercised indirectly via resolveCandidates()/resolveLatest() below, never called directly by StorageClient consumers.',
+  getLogsPaginated: 'TS-private RPC-pagination helper; exercised indirectly via resolveCandidates() below, never called directly by StorageClient consumers.',
 };
 
 test('enumeration: every method on StorageClient.prototype is either purity-tested or explicitly excused', () => {
@@ -225,7 +225,6 @@ test('enumeration: every method on StorageClient.prototype is either purity-test
     'upload',
     'downloadAndVerify',
     'resolveCandidates',
-    'resolveLatest',
     'savePointer',
     'getBalanceWei',
     'clearAbandonedUploadMarker',
@@ -264,13 +263,8 @@ test("stdout purity across StorageClient's full public surface, driven by the en
     await client.upload(new TextEncoder().encode('hello'));
     await client.downloadAndVerify(rootHash);
     await client.resolveCandidates();
-    await client.resolveLatest();
     client.savePointer({ rootHash: '0x' + 'ab'.repeat(32), txSeq: 1, blockNumber: 1 });
     await client.getBalanceWei();
-    // Last: it retires the in-flight marker that `upload()` above wrote, so
-    // invoking it earlier would leave the fixture in a state the real
-    // upload->clear sequence never produces.
-    client.clearAbandonedUploadMarker();
 
     assert.deepEqual(
       spy.chunks,

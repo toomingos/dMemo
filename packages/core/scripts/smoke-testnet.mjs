@@ -66,8 +66,8 @@ pass(`spike/.env loaded (RPC=${env.RPC}, INDEXER=${env.INDEXER}) — PRIVATE_KEY
 // 2. WHY A FRESH WALLET: the spike wallet (spike/.env) already has Phase 0
 //    blobs on-chain in the ad-hoc spike envelope format (specVersion
 //    'dmemo-spike-v0', random-AES-key encryption, raw SQLite-file payload —
-//    see spike/c3-mem0-loop.mjs). @dmemo/core's resolveLatest() finds a
-//    wallet's single latest pointer regardless of which app wrote it, and
+//    see spike/c3-mem0-loop.mjs). @dmemo/core's resolveCandidates() finds a
+//    wallet's pointers regardless of which app wrote them, and
 //    T1.2's decoder correctly REJECTS that legacy blob (wrong specVersion,
 //    not ECIES-encrypted to begin with) rather than silently guessing at
 //    a format — which is the correct, safe behavior, but means the spike

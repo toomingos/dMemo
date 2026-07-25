@@ -171,3 +171,20 @@ export function recordLatencySample({ kind, ms, costWei, bytes, test }) {
 export async function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+// ---------------------------------------------------------------------------
+// Newest-pointer convenience. This used to be `StorageClient.resolveLatest()`,
+// but nothing in the engine ever called it — `session.open()` needs the full
+// candidate list so `resolveRestoreChain()` can walk back past an unreachable
+// head. Keeping a one-shot wrapper on the shipped class just to serve these
+// scripts widened the public surface (and the stdout-purity enumeration) for
+// no production benefit, so it lives here now, where its only callers are.
+// ---------------------------------------------------------------------------
+export async function resolveLatestPointer(storage) {
+  const [latest] = await storage.resolveCandidates(1);
+  if (!latest) return null;
+  // Mirrors the old method: a confirmed pointer seeds the cache so the next
+  // resolve on this client can skip the paginated eth_getLogs scan.
+  storage.savePointer(latest);
+  return latest;
+}

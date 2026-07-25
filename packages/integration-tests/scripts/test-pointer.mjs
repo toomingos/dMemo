@@ -14,6 +14,7 @@ import {
   fmtEther,
   recordSpend,
   recordLatencySample,
+  resolveLatestPointer,
   TESTNET_NETWORK_CONFIG,
 } from '../lib/common.mjs';
 
@@ -60,10 +61,10 @@ async function main() {
   const cachePathB = tmpCachePath('cold');
   const storageB = new StorageClient({ network: TESTNET_NETWORK_CONFIG, privateKey, pointerCachePath: cachePathB });
   const t0 = performance.now();
-  const coldPointer = await storageB.resolveLatest();
+  const coldPointer = await resolveLatestPointer(storageB);
   const coldMs = performance.now() - t0;
   if (!coldPointer) {
-    r.fail('cold resolveLatest() (no cache) returned null — expected to find blob1 via full eth_getLogs scan');
+    r.fail('cold resolveLatestPointer() (no cache) returned null — expected to find blob1 via full eth_getLogs scan');
   } else if (coldPointer.rootHash.toLowerCase() !== up1.rootHash.toLowerCase()) {
     r.fail(`cold resolve returned ${coldPointer.rootHash}, expected ${up1.rootHash}`);
   } else {
@@ -72,10 +73,10 @@ async function main() {
 
   r.section('STEP 3: warm resolve — storageA, cache already populated by its own upload() call');
   const t1 = performance.now();
-  const warmPointer = await storageA.resolveLatest();
+  const warmPointer = await resolveLatestPointer(storageA);
   const warmMs = performance.now() - t1;
   if (!warmPointer) {
-    r.fail('warm resolveLatest() (cache present) returned null');
+    r.fail('warm resolveLatestPointer() (cache present) returned null');
   } else if (warmPointer.rootHash.toLowerCase() !== up1.rootHash.toLowerCase()) {
     r.fail(`warm resolve returned ${warmPointer.rootHash}, expected ${up1.rootHash}`);
   } else {
@@ -88,15 +89,15 @@ async function main() {
   r.pass(`wrote blob2 -> rootHash ${up2.rootHash} (${up2.uploadMs.toFixed(0)}ms, ${fmtEther(up2.costWei)} 0G)`);
   recordLatencySample({ kind: 'flush-delta', ms: up2.uploadMs, costWei: up2.costWei, test: TEST_NAME });
 
-  const freshPointer = await storageA.resolveLatest();
+  const freshPointer = await resolveLatestPointer(storageA);
   if (!freshPointer) {
-    r.fail('resolveLatest() after fresh write returned null');
+    r.fail('resolveLatestPointer() after fresh write returned null');
   } else if (freshPointer.rootHash.toLowerCase() === up1.rootHash.toLowerCase()) {
-    r.fail('resolveLatest() after fresh write returned the STALE (blob1) rootHash — pointer resolution did not pick up the new write');
+    r.fail('resolveLatestPointer() after fresh write returned the STALE (blob1) rootHash — pointer resolution did not pick up the new write');
   } else if (freshPointer.rootHash.toLowerCase() !== up2.rootHash.toLowerCase()) {
-    r.fail(`resolveLatest() after fresh write returned an unexpected rootHash ${freshPointer.rootHash}`);
+    r.fail(`resolveLatestPointer() after fresh write returned an unexpected rootHash ${freshPointer.rootHash}`);
   } else {
-    r.pass(`resolveLatest() after fresh write correctly returned blob2's NEW rootHash ${freshPointer.rootHash}`);
+    r.pass(`resolveLatestPointer() after fresh write correctly returned blob2's NEW rootHash ${freshPointer.rootHash}`);
   }
 
   r.section('SUMMARY');

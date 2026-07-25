@@ -452,7 +452,7 @@ export class DmemoSession {
   }
 
   /** Restore (or freshly start) a session for `scope` on `network`, per
-   * T1.4's `open()` contract: resolveLatest -> download checkpoint +
+   * T1.4's `open()` contract: resolveCandidates -> download checkpoint +
    * subsequent deltas (walking `prevRootHash`) -> verify each -> decrypt ->
    * replay into a fresh native store at a temp path. Empty chain = fresh
    * store (first run for this wallet). */
@@ -617,13 +617,6 @@ export class DmemoSession {
       // recoverable blob unreachable forever).
       if (applyResult.appliedCount === chain.length) {
         storage.savePointer(pointer);
-        // We just deliberately walked back past our own abandoned upload and
-        // are about to chain onto an older head, so that wreckage is settled.
-        // Retiring the marker here keeps it from ever excusing a *future*
-        // unreachable pointer that we did not create.
-        if (restoreStats.skippedBlobs.some((s) => s.reason === 'orphaned')) {
-          storage.clearAbandonedUploadMarker();
-        }
       }
 
       restoreStats.replayMs = replayMs;

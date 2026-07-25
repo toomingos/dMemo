@@ -4,7 +4,7 @@
 //   decode == original.
 //
 // Exercises the exact primitives @dmemo/core's DmemoSession uses internally
-// (StorageClient.upload / resolveLatest / downloadAndVerify, blob-spec's
+// (StorageClient.upload / resolveCandidates / downloadAndVerify, blob-spec's
 // encodeBlob/decodeBlob) directly, at the blob-spec level, independent of
 // mem0 — this is the most literal reading of T5.1 item 1.
 //
@@ -21,6 +21,7 @@ import {
   fmtEther,
   recordSpend,
   recordLatencySample,
+  resolveLatestPointer,
   TESTNET_NETWORK_CONFIG,
 } from '../lib/common.mjs';
 
@@ -95,10 +96,10 @@ async function main() {
 
   r.section('STEP 3: resolve latest pointer');
   const t1 = performance.now();
-  const pointer = await storage.resolveLatest();
+  const pointer = await resolveLatestPointer(storage);
   const resolveMs = performance.now() - t1;
   if (!pointer) {
-    r.fail('resolveLatest() returned null right after a successful upload');
+    r.fail('resolveLatestPointer() returned null right after a successful upload');
   } else if (pointer.rootHash.toLowerCase() !== uploadResult.rootHash.toLowerCase()) {
     r.fail(`resolved rootHash ${pointer.rootHash} != uploaded rootHash ${uploadResult.rootHash}`);
   } else {

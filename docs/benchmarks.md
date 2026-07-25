@@ -20,7 +20,7 @@ Merkle self-verify → decrypt → replay into a fresh mem0 store. Two regimes w
   (gotcha: ~4.78M-block range cap, halve-and-retry). This is the realistic worst case for a
   brand-new machine/session (e.g. a host's very first invocation, or after any local-state wipe).
 - **Warm**: pointer cache already holds an entry for the wallet (populated by a prior
-  `resolveLatest()`/`upload()` in the same process or a persisted cache file) — skips the scan.
+  `resolveCandidates()`/`upload()` in the same process or a persisted cache file) — skips the scan.
 
 | Regime | n | P50 | P95 | min | max |
 |---|---|---|---|---|---|
