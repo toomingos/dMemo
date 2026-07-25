@@ -1,0 +1,54 @@
+{
+  "name": "@dmemo/opencode-plugin",
+  "version": "0.1.0",
+  "description": "dMemo OpenCode plugin (T3.2) — in-process mem0-oss memory via @dmemo/core, every-turn injection, deterministic capture, native compaction-hook integration. Forked from mem0's opencode-mem0.ts (D18); mem0-Platform-only surfaces stripped.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.js",
+    "!dist/**/*.test.js.map",
+    "!dist/**/*.test.d.ts",
+    "!dist/**/*.test.d.ts.map",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test $(find dist -name '*.test.js')",
+    "live": "node scripts/live-integration.mjs",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@dmemo/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "^1.18.5",
+    "typescript": "^5.6.3",
+    "@types/node": "^20.14.0",
+    "zod": "^4.1.8",
+    "ethers": "^6.17.0"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=1.18.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dmemo-ai/dmemo.git",
+    "directory": "packages/opencode-plugin"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": ["dmemo", "0g", "opencode", "opencode-plugin", "memory", "mem0"]
+}
