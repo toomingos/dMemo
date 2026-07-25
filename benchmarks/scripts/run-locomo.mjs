@@ -37,6 +37,25 @@ const CATEGORIES = '1,2,3,4';
 const PORT = Number(process.env.PORT ?? 8899);
 const POINTER_CACHE_PATH = path.join(os.tmpdir(), `dmemo-t52-pointer-cache-${Date.now()}.json`);
 
+// Subset controls for a fast verification run (defaults preserve the full
+// LoCoMo-10 benchmark — the full run stays exactly one command away with no
+// env vars set). `--conversations`/`--max-questions` are native flags already
+// exposed by the cloned harness's `benchmarks.locomo.run` CLI (verified in
+// `benchmarks/locomo/run.py`) — this only threads env vars through to them at
+// the orchestrator level; no harness or core-package code is touched.
+// DMEMO_LOCOMO_CONVS: comma-separated LoCoMo conversation indices (0-9).
+// DMEMO_LOCOMO_MAX_Q: cap on in-scope (categories 1-4) questions PER
+// conversation, applied identically to both predict-only passes so the
+// invariance diff still compares the exact same question set pre/post.
+const LOCOMO_CONVS = process.env.DMEMO_LOCOMO_CONVS ?? '0,1,2,3,4,5,6,7,8,9';
+const LOCOMO_MAX_Q = process.env.DMEMO_LOCOMO_MAX_Q ? Number(process.env.DMEMO_LOCOMO_MAX_Q) : null;
+if (LOCOMO_CONVS !== '0,1,2,3,4,5,6,7,8,9' || LOCOMO_MAX_Q !== null) {
+  console.log(
+    `[run] SUBSET MODE: conversations=[${LOCOMO_CONVS}] maxQuestionsPerConv=${LOCOMO_MAX_Q ?? 'unlimited'} ` +
+      `(full LoCoMo-10 run = unset DMEMO_LOCOMO_CONVS/DMEMO_LOCOMO_MAX_Q)`
+  );
+}
+
 const REPORT_DIR = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'results');
 fs.mkdirSync(REPORT_DIR, { recursive: true });
 
@@ -401,6 +420,7 @@ function runHarness({ predictOnly }) {
     '--mem0-host', `http://127.0.0.1:${PORT}`,
     '--top-k', String(TOP_K),
     '--categories', CATEGORIES,
+    '--conversations', LOCOMO_CONVS,
     '--run-id', RUN_ID,
     '--output-dir', RESULTS_DIR,
     '--provider', 'openai',
@@ -408,6 +428,7 @@ function runHarness({ predictOnly }) {
     '--judge-model', 'gpt-5-mini',
     '--max-workers', '6',
   ];
+  if (LOCOMO_MAX_Q !== null) args.push('--max-questions', String(LOCOMO_MAX_Q));
   if (predictOnly) args.push('--predict-only');
 
   return new Promise((resolve, reject) => {
