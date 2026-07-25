@@ -10,7 +10,8 @@
   "scripts": {
     "build": "pnpm -r --filter=./packages/* run build",
     "test": "pnpm -r --filter=./packages/* run test",
-    "clean": "pnpm -r --filter=./packages/* run clean"
+    "clean": "pnpm -r --filter=./packages/* run clean",
+    "demo": "node packages/integration-tests/scripts/demo.mjs"
   },
   "devDependencies": {
     "typescript": "^5.6.3",
