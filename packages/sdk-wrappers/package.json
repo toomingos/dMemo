@@ -1,0 +1,48 @@
+{
+  "name": "@dmemo/sdk-wrappers",
+  "version": "0.1.0",
+  "description": "dMemo Phase 2 inference leg — 0G Router client preset (T2.1) and OpenAI/Anthropic SDK memory wrappers (T2.2) via native custom-fetch and Anthropic middleware extension points.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.js",
+    "!dist/**/*.test.js.map",
+    "!dist/**/*.test.d.ts",
+    "!dist/**/*.test.d.ts.map",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test $(find dist -name '*.test.js')",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "openai": "^6.49.0",
+    "@anthropic-ai/sdk": "^0.115.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "@types/node": "^20.14.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dmemo-ai/dmemo.git",
+    "directory": "packages/sdk-wrappers"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": ["dmemo", "0g", "openai", "anthropic", "memory", "router"]
+}
