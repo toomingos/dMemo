@@ -198,6 +198,53 @@ Hermes/Python = v1.1. Network: testnet Galileo first (D14), one-env-var mainnet 
     a dependency of publishable packages like `@dmemo/opencode-plugin`/`@dmemo/openclaw-plugin` —
     that's why the shared reader lives in `@dmemo/core`, which every host already depends on,
     rather than in the adapter.
+26. *(F6)* **A Merkle-valid, fully downloadable, structurally-decodable chain head can still be
+    corrupt — gotcha 20's walk-back only covered dangling/unretrievable pointers, not this.**
+    `DmemoSession.open()`'s apply/replay loop originally had *zero* error handling: any
+    `applyReplayOp`/`applyCheckpointRows` failure on the newest blob (gotcha 6 again — AES-CTR has
+    no auth tag, so bit-level corruption can hide until replay actually touches the bytes, past
+    both Merkle self-verify and `decodeBlob`'s intentionally shallow structural validation) threw
+    uncaught and made the whole memory permanently unopenable, with no skip or walk-back path. The
+    fix establishes one classification pivot — **Merkle-verify success is dMemo's real
+    authenticity/durability boundary, playing the role an AEAD auth tag would elsewhere.**
+    Everything before/during it (transport exceptions, timeouts, the SDK's own "not
+    finalized"/"no node holds segment" reports, a Merkle mismatch — `downloadToBlob`'s node
+    selection is randomized, so a retry can land on a different, good node) is `'transient'` or
+    `'unretrievable'` and MUST be retried, never treated as corruption; everything after it that
+    still fails (decrypt failure, `BlobDecodeError`, or an apply-time replay failure) is
+    `'corrupt'` — deterministic, never retried. Two new pure, dependency-injected functions in
+    `packages/core/src/session.ts` carry this: `resolveRestoreChain()` (download/decode-time
+    walk-back — reuses the existing per-candidate `resolveCandidates()` walk-back from gotcha 20
+    as the "one blob at a time" unit, since each candidate is exactly one blob's position in the
+    real chain and a delta chain has no meaning without its unbroken ancestor set) and
+    `applyRestoreChain()` (apply-time truncation — walks the resolved chain oldest→newest,
+    stopping at the first blob that fails to replay and keeping every strictly-older blob that
+    already applied). **Never silent**: every skipped blob is recorded in
+    `RestoreStats.skippedBlobs` (`{rootHash, reason, detail}`, root hashes/reasons only, never key
+    material or decrypted content) and logged; `danglingPointersSkipped` is kept as a
+    backward-compatible count of the same list. If replay truncates the chain, the cached pointer
+    is **not** updated to the unreplayable head (only when every resolved blob actually applied) —
+    caching it would poison `resolveCandidates()`'s search window with a pointer that's never
+    revisited, making a skipped-but-possibly-recoverable blob unreachable forever. If nothing in
+    the resolved chain replays at all, `open()` throws `RestoreChainUnavailableError` (message
+    distinguishes an all-transient verdict — "may be temporary, retry" — from a confirmed-corrupt
+    one) rather than silently falling back to what would look like a fresh, empty store.
+    **Follow-up hole (same fix round):** the first version of `resolveRestoreChain()` computed the
+    `'transient'` vs `'corrupt'` classification but then ignored it when *acting* — any skip took
+    the identical `ok = false` walk-back branch, so a transient blip on the real head (surviving
+    the one retry) got silently degraded to an older, fully-resolved candidate: `savePointer()`
+    cached the OLDER pointer, `seq`/`prevRootHash` chained onto it, and the newer, probably-still-
+    intact head became permanently unreachable — a temporary network failure converted into
+    permanent loss, the exact outcome F6 exists to prevent. Fixed by making `resolveRestoreChain()`
+    check, on the first fully-resolved candidate, whether any newer candidate it walked past was
+    abandoned for a `'transient'`/`'unretrievable'` reason (every `skipped` entry accumulated
+    before a success belongs to a newer candidate, since the walk returns on first full success).
+    If so, it throws `RestoreTemporarilyUnavailableError` instead of degrading — caches/writes/
+    chains nothing, and the message says the memory is intact and to retry later. Only when every
+    abandoned newer candidate was confirmed `'corrupt'` (nothing left to wait for) does it still
+    degrade to the older candidate, unchanged. This covers the mixed case too: head `corrupt`,
+    next candidate `transient`, next-next candidate good — still refuses, because a later retry
+    might recover the `transient` one, which is newer than the candidate that resolved.
 
 ---
 

@@ -17,6 +17,11 @@ export interface StorageClientOptions {
   /** App-level upload timeout (gotcha 15: the SDK's `waitForLogEntry()` is
    * an unbounded retry loop with no timeout — this wraps it). */
   uploadTimeoutMs?: number;
+  /** App-level per-attempt download timeout (F6: a hung indexer or node
+   * must not hang restore forever, and must surface as a
+   * classifiably-transient failure rather than an indefinite stall — the
+   * download-side analog of gotcha 15's upload timeout). */
+  downloadTimeoutMs?: number;
 }
 
 export interface UploadResult {
@@ -48,8 +53,63 @@ export class MerkleVerifyError extends Error {
   }
 }
 
+export class DownloadTimeoutError extends Error {
+  constructor(ms: number) {
+    super(`0G download did not complete within ${ms}ms (app-level timeout)`);
+    this.name = 'DownloadTimeoutError';
+  }
+}
+
+/**
+ * F6: a blob that could not be confirmed as durably-and-correctly present on
+ * 0G Storage *right now*, after `DOWNLOAD_ATTEMPTS` tries. This is
+ * deliberately NOT the same signal as `BlobCorruptError` — everything this
+ * class covers (transport exceptions, indexer/node timeouts, the SDK's own
+ * "not finalized" / "no storage node holds segment" / "failed to query
+ * file" reports, and even a Merkle mismatch — `downloadToBlob`'s node
+ * selection is randomized per call, gotcha 20a's "not merely propagation
+ * lag" note applies here too) can *also* be explained by a transient
+ * condition that a later attempt would clear. Callers must treat this as
+ * "unavailable for now" (walk back to the previous blob), never as proof of
+ * permanent data loss.
+ */
+export class BlobUnretrievableError extends Error {
+  /** `'unretrievable'` when the SDK/Merkle layer positively reported the
+   * data as absent/mismatched; `'transient'` for a raw transport failure or
+   * timeout where we never even got a verdict. Both are walked back the
+   * same way — this only affects the telemetry message. */
+  readonly reason: 'transient' | 'unretrievable';
+  constructor(rootHash: string, reason: 'transient' | 'unretrievable', causeMessage: string) {
+    super(`blob ${rootHash} not retrievable after ${DOWNLOAD_ATTEMPTS} attempt(s) (${reason}): ${causeMessage}`);
+    this.name = 'BlobUnretrievableError';
+    this.reason = reason;
+  }
+}
+
+/**
+ * F6: a blob whose ciphertext bytes are cryptographically CONFIRMED (Merkle
+ * root matches the on-chain value) to be exactly what is durably stored on
+ * 0G, yet cannot be decrypted. Gotcha 6: the ECIES payload rides on
+ * unauthenticated AES-CTR, so this codebase has no auth-tag signal the way
+ * an AEAD cipher would — Merkle-verified-but-undecryptable is as close as
+ * it gets to a definitive corruption signal, and unlike `BlobUnretrievableError`
+ * it is NOT retried: the bytes are already confirmed identical to what was
+ * uploaded, so a retry would deterministically reproduce the same failure.
+ */
+export class BlobCorruptError extends Error {
+  constructor(rootHash: string, detail: string) {
+    super(`blob ${rootHash} is corrupt: ${detail}`);
+    this.name = 'BlobCorruptError';
+  }
+}
+
 const DEFAULT_UPLOAD_TIMEOUT_MS = 120_000;
+const DEFAULT_DOWNLOAD_TIMEOUT_MS = 45_000;
 const DEFAULT_POINTER_CANDIDATES = 8;
+/** Attempts per blob before a download/verify failure is treated as (even
+ * transiently) unretrievable. Matches `runFlush()`'s existing "retry once"
+ * convention (session.ts) rather than introducing a new backoff scheme. */
+const DOWNLOAD_ATTEMPTS = 2;
 
 /**
  * Recompute the on-chain dataMerkleRoot from a Submit event's submission
@@ -110,6 +170,7 @@ export class StorageClient {
   readonly indexer: Indexer;
   private readonly pointerCachePath: string;
   private readonly uploadTimeoutMs: number;
+  private readonly downloadTimeoutMs: number;
   private readonly flowIface: ethers.Interface;
   private readonly submitTopic: string;
   private readonly senderTopic: string;
@@ -121,6 +182,7 @@ export class StorageClient {
     this.indexer = new Indexer(opts.network.indexerUrl);
     this.pointerCachePath = opts.pointerCachePath ?? defaultPointerCachePath();
     this.uploadTimeoutMs = opts.uploadTimeoutMs ?? DEFAULT_UPLOAD_TIMEOUT_MS;
+    this.downloadTimeoutMs = opts.downloadTimeoutMs ?? DEFAULT_DOWNLOAD_TIMEOUT_MS;
     this.flowIface = new ethers.Interface(FixedPriceFlow__factory.abi);
     this.submitTopic = this.flowIface.getEvent('Submit')!.topicHash;
     this.senderTopic = ethers.zeroPadValue(this.wallet.address, 32);
@@ -190,30 +252,78 @@ export class StorageClient {
   // -------------------------------------------------------------------
   // Download + mandatory Merkle self-verify + decrypt (gotcha 1)
   // -------------------------------------------------------------------
+  /**
+   * Download `rootHash`, self-verify it against the Merkle root, and
+   * decrypt — or throw one of two classifiably-distinct errors (F6):
+   *
+   *  - `BlobUnretrievableError`: nothing conclusive about this blob's
+   *    *content* could be established after `DOWNLOAD_ATTEMPTS` tries — a
+   *    transport failure, an app-level timeout, an SDK-reported
+   *    not-finalized/no-covering-set condition, or a Merkle mismatch (which
+   *    `downloadToBlob`'s randomized node selection can also produce from a
+   *    single bad node). None of these prove the data is gone — only that
+   *    it isn't obtainable *right now* — so this is never corruption.
+   *  - `BlobCorruptError`: the Merkle root matched (these ARE the exact
+   *    on-chain bytes) but they don't decrypt. Deterministic, so not
+   *    retried — see the class doc for why this is dMemo's closest
+   *    equivalent to an AEAD auth-tag failure despite AES-CTR having none
+   *    (gotcha 6).
+   */
   async downloadAndVerify(rootHash: string): Promise<{ plaintext: Buffer; downloadMs: number; verifyMs: number; decryptMs: number }> {
-    const tDl = performance.now();
-    const [rawBlob, dlErr] = await this.indexer.downloadToBlob(rootHash, { proof: false });
-    if (dlErr) throw new Error(`0G download error: ${dlErr.message ?? String(dlErr)}`);
-    const ciphertext = Buffer.from(await rawBlob.arrayBuffer());
-    const downloadMs = performance.now() - tDl;
+    let downloadMs = 0;
+    let verifyMs = 0;
+    let ciphertext: Buffer | null = null;
+    let lastErr: Error = new Error('unreachable');
+    let lastReason: 'transient' | 'unretrievable' = 'transient';
 
-    const tVerify = performance.now();
-    const file = new MemData(ciphertext);
-    const [tree, treeErr] = await file.merkleTree();
-    if (treeErr) throw new Error(`merkleTree() error: ${treeErr.message ?? String(treeErr)}`);
-    const recomputedRoot = tree!.rootHash();
-    const verifyMs = performance.now() - tVerify;
-    if (recomputedRoot === null) {
-      throw new MerkleVerifyError(rootHash, '(null — merkleTree().rootHash() returned no root)');
+    for (let attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt++) {
+      try {
+        const tDl = performance.now();
+        const [rawBlob, dlErr] = await withTimeout(
+          this.indexer.downloadToBlob(rootHash, { proof: false }),
+          this.downloadTimeoutMs,
+          () => new DownloadTimeoutError(this.downloadTimeoutMs)
+        );
+        if (dlErr) throw new Error(`0G download error: ${dlErr.message ?? String(dlErr)}`);
+        const bytes = Buffer.from(await rawBlob.arrayBuffer());
+        downloadMs = performance.now() - tDl;
+
+        const tVerify = performance.now();
+        const file = new MemData(bytes);
+        const [tree, treeErr] = await file.merkleTree();
+        if (treeErr) throw new Error(`merkleTree() error: ${treeErr.message ?? String(treeErr)}`);
+        const recomputedRoot = tree!.rootHash();
+        verifyMs = performance.now() - tVerify;
+        if (recomputedRoot === null) {
+          throw new MerkleVerifyError(rootHash, '(null — merkleTree().rootHash() returned no root)');
+        }
+        if (recomputedRoot.toLowerCase() !== rootHash.toLowerCase()) {
+          throw new MerkleVerifyError(rootHash, recomputedRoot);
+        }
+
+        ciphertext = bytes;
+        break;
+      } catch (e) {
+        lastErr = e as Error;
+        // A positive verdict from the Merkle/SDK layer (mismatch) is
+        // reported distinctly from "we never got far enough to ask"
+        // (transport exception/timeout) — both are still retried the same
+        // way; this only changes the final classification if every attempt
+        // fails the same way.
+        lastReason = e instanceof MerkleVerifyError ? 'unretrievable' : 'transient';
+      }
     }
-    if (recomputedRoot.toLowerCase() !== rootHash.toLowerCase()) {
-      throw new MerkleVerifyError(rootHash, recomputedRoot);
+    if (ciphertext === null) {
+      throw new BlobUnretrievableError(rootHash, lastReason, lastErr.message);
     }
 
     const tDecrypt = performance.now();
     const { bytes, decrypted } = tryDecrypt(ciphertext, { privateKey: this.wallet.privateKey });
     if (!decrypted) {
-      throw new Error('decrypt failed: blob is not ECIES-encrypted to this wallet, or key mismatch');
+      throw new BlobCorruptError(
+        rootHash,
+        'decrypt failed: blob is not ECIES-encrypted to this wallet, or key mismatch'
+      );
     }
     const decryptMs = performance.now() - tDecrypt;
 

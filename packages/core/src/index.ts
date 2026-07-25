@@ -3,7 +3,14 @@
 export { DmemoSession } from './session.js';
 export type { OpenSessionOptions, FlushLogEntry, RestoreStats } from './session.js';
 
-export { StorageClient, UploadTimeoutError, MerkleVerifyError } from './storage/client.js';
+export {
+  StorageClient,
+  UploadTimeoutError,
+  DownloadTimeoutError,
+  MerkleVerifyError,
+  BlobUnretrievableError,
+  BlobCorruptError,
+} from './storage/client.js';
 export type { StorageClientOptions, UploadResult, ResolvedPointer } from './storage/client.js';
 
 export { resolveNetworkConfig, BLOCK_RANGE_CAP } from './storage/network.js';
