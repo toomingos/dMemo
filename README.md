@@ -28,6 +28,19 @@ Generates (or imports) a wallet, walks you through testnet funding, writes `~/.d
 and installs the adapter for every supported host it detects. The memory leg needs no web
 sign-ins, no API keys, and no accounts — just a funded testnet wallet.
 
+## 30-second live demo
+
+```bash
+pnpm install && pnpm build && pnpm demo
+```
+
+Runs the whole story against the real 0G Galileo testnet: an agent learns six facts
+locally → the delta is ECIES-encrypted and flushed to 0G Storage → the raw on-chain
+bytes are shown to be pure ciphertext (a stranger's wallet decrypts to unparseable
+garbage) → local state is wiped → a fresh session restores everything from chain with
+nothing but the wallet key, and returns the identical search hit. Needs a funded
+testnet wallet in `spike/.env` (see [docs/demo-video.md](docs/demo-video.md)).
+
 ## How it works
 
 ```
