@@ -97,6 +97,29 @@ Hermes/Python = v1.1. Network: testnet Galileo first (D14), one-env-var mainnet 
     holds (no plaintext is recoverable), but wrong-key detection only happens downstream when
     `decodeBlob` rejects the garbage. Never treat a non-throwing `downloadAndVerify` as proof
     the caller held the right key; treat `decodeBlob` failure as the authoritative signal.
+20. *(T5.2 forensics — supersedes the earlier "indexer lag" read)* Three linked facts about
+    0G storage durability, all verified live at segment level:
+    **(a) The testnet trusted set is sharded** (`numShard: 2` — even absolute segment indices
+    live on shard-0 nodes, odd on shard-1). `indexer_getFileLocations` returning `[]`/null can
+    mean **no complete covering set EXISTS** — not merely propagation lag. A node can report
+    `finalized: true` for *its shard's portion* while the file as a whole is unretrievable.
+    **(b) A Submit log lands when the upload *transaction* is mined — BEFORE segment data is
+    durable.** A failed/timed-out upload (our flush retries re-upload under a NEW tx) leaves
+    dangling on-chain pointers that shadow the last good blob. Restore therefore must never
+    trust the newest Submit log blindly: `resolveCandidates()` + the session's walk-back loop
+    (skip unretrievable/undecodable pointers, `restoreStats.danglingPointersSkipped`) is the
+    fix. The rootHash is computed locally from the Submit event's submission nodes
+    (right-fold keccak256 — verified against `zgs_getFileInfo(...).tx.dataMerkleRoot`), so
+    pointer resolution no longer needs any storage-node RPC.
+    **(c) Large multi-segment uploads can silently lose their final segment on one shard**:
+    three consecutive ~17.1MB uploads (67 segments) all left the shard-0 node at exactly
+    66/67 with segment 66 served by NO node — the file can never finalize and the data is
+    unrecoverable. Upstream 0G issue (report: txSeq 143558/143559/143561, wallet
+    `0x4D46bb09942Fa5558Fc9527F95DD4432D0503682`, July 25 2026). dMemo's normal blobs
+    (~16KB deltas, single segment) are unaffected; only the LoCoMo benchmark's giant
+    checkpoints hit this. Mitigations: benchmark harness durability gate (verify covering
+    set for the whole restore-chain suffix BEFORE wiping local state) +
+    `session.droppedFlushCount` (fail-open drops are now detectable).
 
 ---
 
