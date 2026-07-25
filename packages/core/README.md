@@ -15,6 +15,37 @@ Note: this package's dependency tree eagerly imports both `better-sqlite3`
 and `pg` at runtime (a `mem0ai/oss` packaging quirk — both are declared as
 hard dependencies here so they're always present).
 
+## Runtime support
+
+Node.js ≥ 20 and **Bun** are both supported; the same `DmemoSession` API,
+the same on-chain blob format, the same memory chain.
+
+Bun needs one accommodation, applied automatically. `better-sqlite3` — which
+`mem0ai/oss` imports at module scope, so it cannot be configured away — is a
+V8 C++ addon, a surface Bun has never implemented
+([oven-sh/bun#4290](https://github.com/oven-sh/bun/issues/4290)); loading it
+under Bun **aborts the process** rather than throwing. `DmemoSession.open()`
+therefore calls `ensureBetterSqlite3Compat()` before it touches mem0, which
+registers a `Bun.plugin` virtual module routing `better-sqlite3` to Bun's
+built-in `bun:sqlite` (normalizing the handful of places the two APIs
+diverge). On Node it is a no-op and the native addon is used unchanged.
+
+You only need to call it yourself if you import `mem0ai/oss` directly,
+*before* your own import:
+
+```ts
+import { ensureBetterSqlite3Compat } from '@dmemo/core';
+
+await ensureBetterSqlite3Compat(); // no-op off Bun; must precede the import
+const { Memory } = await import('mem0ai/oss');
+```
+
+`Bun.plugin` only affects modules resolved after it is registered, so the
+ordering is load-bearing. Other native dependencies are unaffected —
+`fastembed`/`onnxruntime-node` are Node-API addons and run on Bun as-is, so
+no out-of-process sidecar is involved. Verified against Bun 1.2.18 and
+1.3.14 on macOS arm64.
+
 ## Usage
 
 ```ts

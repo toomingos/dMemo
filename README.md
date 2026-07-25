@@ -88,6 +88,9 @@ agent turn ──▶ mem0 OSS (local extraction + local embeddings)
 
 v0.1.0 (testnet). All packages build (`pnpm -r build`) and pass tests (`pnpm -r test`);
 integration-tested live on 0G Galileo testnet (chain 16602). Not yet published to npm.
+Runs on **Node.js ≥ 20 and Bun** — Bun hosts (OpenCode loads plugins in-process under Bun) are
+handled transparently by `@dmemo/core`, which routes mem0's `better-sqlite3` dependency to
+`bun:sqlite` (see [packages/core](packages/core#runtime-support)).
 Known open items: no TeeML chat model is currently live on the 0G testnet Router (private
 inference for chat is pinned but unavailable until the catalog recovers), and true per-epoch
 crypto-shred lands in v1.1.

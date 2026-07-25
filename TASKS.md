@@ -45,7 +45,8 @@ Hermes/Python = v1.1. Network: testnet Galileo first (D14), one-env-var mainnet 
    `fileInfo.tx.dataMerkleRoot` (D8; `spike/c2-blob.mjs:200-215` is the working reference).
 3. **`import('mem0ai/oss')` crashes unless `better-sqlite3` AND `pg` are installed** — the
    published ESM bundle eagerly imports every backend. Declare both as hard dependencies of
-   `@dmemo/core` (`mem0.md` §4).
+   `@dmemo/core` (`mem0.md` §4). On **Bun** hosts, installing `better-sqlite3` is not enough —
+   it aborts the process outright; see gotcha 22.
 4. **0G Router has NO `/embeddings` endpoint** (verified against its OpenAPI). Embeddings are
    always local (D6).
 5. **0G Router has NO `/v1/responses`** → Codex inference through 0G is out of scope; Codex is
@@ -133,6 +134,37 @@ Hermes/Python = v1.1. Network: testnet Galileo first (D14), one-env-var mainnet 
     config as `{}` silently discards the key inside it (back it up instead). Consent asymmetry:
     a `connect`-derived key is reproducible from the same wallet + scope, a `setup`-generated
     one exists nowhere else — only the latter earns a prompt.
+22. *(F4 — Bun hosts)* **`better-sqlite3` does not merely fail on Bun, it ABORTS the process**,
+    so gotcha 3's "just install it" is not sufficient on a Bun host (OpenCode runs plugins
+    in-process under Bun). It is a **V8 C++ addon**, not a Node-API one, and Bun has never
+    implemented that surface (`oven-sh/bun#4290`, open, no timeline) — you get
+    `panic(main thread): NAPI FATAL ERROR: Error::New napi_get_last_error_info`, uncatchable, on
+    12.x preceded by a `NODE_MODULE_VERSION 147 vs 137` ABI mismatch. Three consequences:
+    **(a)** There is no config-level escape. `mem0ai/oss` imports `better-sqlite3` at *module*
+    scope (`dist/oss/index.mjs` twice), so `await import('mem0ai/oss')` kills the process before
+    any provider config is read, and `VectorStoreFactory.create()` is a closed switch with no
+    instance passthrough (gotcha 11) — `MemoryVectorStore`, and its `new Database(dbPath)`, is
+    always constructed.
+    **(b)** The fix is a virtual module, and it must be installed *strictly before* that import:
+    `ensureBetterSqlite3Compat()` (`core/src/runtime/bunSqliteCompat.ts`) registers a
+    `Bun.plugin` `build.module('better-sqlite3', …)` routing to `bun:sqlite`. `Bun.plugin` only
+    affects modules resolved *after* registration, so never hoist an `import('mem0ai/oss')`
+    above it, and never add a second mem0 import path that skips it. Off Bun it is a no-op; if
+    it *can't* install, `DmemoSession.open()` throws rather than proceeding, so a fail-open host
+    disables memory instead of dying.
+    **(c)** `bun:sqlite` is modelled on better-sqlite3 but diverges in three ways that produce
+    **silently wrong answers, not crashes**, and the shim must keep normalizing them: `.get()`
+    returns `null` on a miss (better-sqlite3: `undefined`); BLOBs come back as `Uint8Array`, not
+    `Buffer`, and mem0 does `new Float32Array(v.buffer, v.byteOffset, v.byteLength/4)`, which
+    **throws unless `byteOffset` is 4-byte aligned** — so BLOBs are copied into aligned Buffers;
+    `.exec()` returns `undefined` instead of the Database, breaking chaining.
+    Do **not** generalize this to "native addons don't work on Bun" — Node-API addons do:
+    `fastembed`/`onnxruntime-node` runs unmodified under Bun (verified, dim=384). An
+    out-of-process Node sidecar is therefore unwarranted; `better-sqlite3` is the only offender.
+    Conformance evidence: mem0's real `MemoryVectorStore` driven through insert/search/filtered
+    search/get/list/update/BM25 keywordSearch/delete/setUserId/payload-normalization is
+    byte-identical between Node and Bun 1.2.18 & 1.3.14 (cosine scores included). Verified on
+    macOS arm64 only.
 
 ---
 

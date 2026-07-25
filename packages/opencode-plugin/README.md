@@ -20,6 +20,27 @@ entries at startup:
 }
 ```
 
+## Runtime (Bun)
+
+OpenCode runs plugins **in-process under Bun**, and installs plugin
+dependencies with `bun install` at startup. That matters because `mem0ai/oss`
+imports `better-sqlite3` at module scope, and `better-sqlite3` is a V8 C++
+addon — a surface Bun does not implement
+([oven-sh/bun#4290](https://github.com/oven-sh/bun/issues/4290)). Loading it
+under Bun **aborts the whole OpenCode process** (`panic(main thread): NAPI
+FATAL ERROR: …`); it is not a catchable error, so the plugin's fail-open path
+cannot save you from it.
+
+`@dmemo/core` handles this: `DmemoSession.open()` routes `better-sqlite3` to
+Bun's built-in `bun:sqlite` before mem0 is imported. Nothing to configure —
+just make sure the plugin resolves a `@dmemo/core` that includes this fix.
+If it can't be installed, `open()` throws instead of aborting, and the plugin
+falls back to its normal no-op behavior (memory disabled, host unharmed).
+
+Verified end-to-end on Bun 1.2.18 and 1.3.14 (macOS arm64): `opencode serve`
+boots with the plugin loaded, restores the memory chain, and answers from
+`dmemo_search`.
+
 ## Configuration (fail-open)
 
 The plugin reads dMemo config from the environment via `@dmemo/core`'s

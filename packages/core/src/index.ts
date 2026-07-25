@@ -31,6 +31,9 @@ export type { DmemoConfig, EnvSource } from './config.js';
 export { deriveEpochKey, forget } from './forget.js';
 export type { ForgetOptions, ForgetResult } from './forget.js';
 
+export { ensureBetterSqlite3Compat } from './runtime/bunSqliteCompat.js';
+export type { BunSqliteCompatResult } from './runtime/bunSqliteCompat.js';
+
 export { internals } from './mem0Internal.js';
 export type { MemoryInternals, HistoryBackedManager } from './mem0Internal.js';
 

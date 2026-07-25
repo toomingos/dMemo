@@ -27,6 +27,7 @@ import {
   type ResolvedEmbedderConfig,
 } from './embedder.js';
 import { internals } from './mem0Internal.js';
+import { ensureBetterSqlite3Compat } from './runtime/bunSqliteCompat.js';
 
 const require = createRequire(import.meta.url);
 const MEM0_ENGINE_VERSION: string = (() => {
@@ -160,6 +161,21 @@ export class DmemoSession {
     // Must be set before the dynamic import below — mem0ai/oss reads
     // process.env.MEM0_TELEMETRY at module-eval time (gotcha 13).
     process.env.MEM0_TELEMETRY = 'false';
+
+    // Also strictly before that import: mem0ai/oss statically imports
+    // better-sqlite3, a V8-C++ addon that ABORTS the process on Bun rather
+    // than throwing (oven-sh/bun#4290). Route it to bun:sqlite first. No-op
+    // on Node. If it cannot be installed we must NOT reach the import —
+    // raising here keeps the failure catchable, so an in-process host like
+    // OpenCode fails open with memory disabled instead of dying.
+    const sqliteCompat = await ensureBetterSqlite3Compat();
+    if (sqliteCompat.isBun && !sqliteCompat.installed) {
+      throw new Error(
+        `dmemo cannot start on this Bun runtime: ${sqliteCompat.reason}. ` +
+          `mem0's sqlite store would abort the process (see oven-sh/bun#4290).`
+      );
+    }
+
     const { Memory: MemoryCtor } = await import('mem0ai/oss');
 
     const networkConfig = resolveNetworkConfig(opts.network ?? 'testnet', opts.networkOverrides ?? {});
