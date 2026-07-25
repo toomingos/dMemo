@@ -10,8 +10,23 @@ export { installDetectedHosts } from './installHosts.js';
 export type { InstalledHosts } from './installHosts.js';
 export { generateWallet, importWallet } from './wallet.js';
 export type { WalletResult } from './wallet.js';
-export { writeDmemoConfig, readDmemoConfig, dmemoHome, dmemoConfigPath } from './dmemoConfig.js';
-export type { DmemoConfigFile, NetworkName } from './dmemoConfig.js';
+export {
+  writeDmemoConfig,
+  readDmemoConfig,
+  dmemoHome,
+  dmemoConfigPath,
+  inspectExistingKey,
+  recoveryHint,
+  addressForKey,
+  ExistingKeyError,
+} from './dmemoConfig.js';
+export type {
+  DmemoConfigFile,
+  NetworkName,
+  WriteConfigOptions,
+  WriteConfigResult,
+  ExistingKeyInfo,
+} from './dmemoConfig.js';
 export { detectHosts } from './hostDetect.js';
 export type { HostDetection } from './hostDetect.js';
 export { checkBalance, faucetInstructions } from './network.js';

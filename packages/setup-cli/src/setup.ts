@@ -5,10 +5,24 @@
 // The memory leg (steps 1-4) completes with ZERO interactive web steps.
 // Step 5 (inference) is documented, not automated (accepted gap, D-cited in
 // TASKS.md T4.1: "no documented headless first-key mint").
+//
+// Re-run semantics (F3): a wallet already on record is KEPT. Setup's job on a
+// re-run is to wire up hosts, not to mint a new identity — and since
+// `DMEMO_PRIVATE_KEY` is the only thing that can decrypt this wallet's blobs
+// on 0G, generating a fresh one silently would orphan every memory the user
+// has. Replacing a wallet therefore takes an explicit ask (`--new-wallet` or
+// `--import-key`) AND consent (an interactive y/N, or `--force`), and always
+// leaves a timestamped backup behind.
 
 import { generateWallet, importWallet, type WalletResult } from './wallet.js';
 import { faucetInstructions, checkBalance, MAINNET_CHAIN_ID } from './network.js';
-import { writeDmemoConfig, type NetworkName } from './dmemoConfig.js';
+import {
+  writeDmemoConfig,
+  inspectExistingKey,
+  recoveryHint,
+  type ExistingKeyInfo,
+  type NetworkName,
+} from './dmemoConfig.js';
 import { installDetectedHosts, type InstalledHosts } from './installHosts.js';
 import { promptText, promptYesNo, promptSecret } from './prompt.js';
 
@@ -20,6 +34,13 @@ export interface SetupOptions {
   network?: NetworkName;
   /** Import this key instead of generating one (still never printed). */
   importKey?: string;
+  /** Explicitly mint a NEW wallet even though one is already configured.
+   * Still subject to the consent gate below — this states the intent, it
+   * does not grant permission. */
+  newWallet?: boolean;
+  /** Grant permission to replace the configured wallet without a prompt.
+   * The old config is backed up regardless. */
+  force?: boolean;
   skipHosts?: boolean;
   checkBalanceOnce?: boolean;
   log?: (line: string) => void;
@@ -30,6 +51,10 @@ export interface SetupResult {
   network: NetworkName;
   configPath: string;
   hosts: InstalledHosts;
+  /** True when an already-configured wallet was kept as-is. */
+  walletReused: boolean;
+  /** Where the pre-replacement config was copied, when one was replaced. */
+  backupPath: string | null;
 }
 
 const INFERENCE_INSTRUCTIONS = [
@@ -54,57 +79,82 @@ export async function runSetup(opts: SetupOptions = {}): Promise<SetupResult> {
   const env = opts.env ?? process.env;
   const log = opts.log ?? ((line: string) => console.log(line));
   const nonInteractive = Boolean(opts.yes) || !process.stdin.isTTY;
-  const network: NetworkName = opts.network ?? (env.DMEMO_NETWORK as NetworkName) ?? 'testnet';
 
   log('dMemo setup — private, encrypted, portable memory backed by 0G Storage\n');
 
   // --- Step 1: wallet ---------------------------------------------------
-  let wallet: WalletResult;
-  if (opts.importKey) {
-    wallet = importWallet(opts.importKey);
-  } else if (nonInteractive) {
-    wallet = generateWallet();
+  // Read what is already on record BEFORE doing anything, so a re-run never
+  // reaches the point of having generated a key it then has to talk itself
+  // out of writing.
+  const existing = inspectExistingKey(env);
+  const wantsNewKey = Boolean(opts.importKey || opts.newWallet);
+
+  // An existing config's network wins over the built-in default, so a plain
+  // re-run of a mainnet install doesn't quietly demote it to testnet.
+  const network: NetworkName =
+    opts.network ?? (env.DMEMO_NETWORK as NetworkName) ?? (existing?.network as NetworkName) ?? 'testnet';
+
+  let wallet: WalletResult | null = null;
+
+  if (existing && !wantsNewKey) {
+    log(`Wallet already configured: ${existing.address ?? '<unreadable key>'} (${existing.source}).`);
+    log('Keeping it — re-running setup never replaces a wallet.');
+    log('To replace it deliberately: `dmemo setup --new-wallet`, or');
+    log('`dmemo setup --import-key <hex>`.\n');
   } else {
-    const choice = (await promptText('Generate a new wallet or import an existing key? [generate/import] ', 'generate'))
-      .toLowerCase();
-    if (choice.startsWith('i')) {
-      const key = await promptSecret('Paste your private key (input hidden, never echoed): ');
-      wallet = importWallet(key);
+    wallet = await obtainWallet(opts, nonInteractive);
+
+    if (existing && existing.address?.toLowerCase() === wallet.address.toLowerCase()) {
+      // Imported the key that is already configured — not a replacement at
+      // all, so no gate and nothing to back up.
+      log(`Wallet ${wallet.address} is already the configured one — nothing to replace.\n`);
+    } else if (existing) {
+      await confirmReplacement(existing, wallet.address, { nonInteractive, force: opts.force, log });
     } else {
-      wallet = generateWallet();
+      log(`Wallet ${wallet.generated ? 'generated' : 'imported'}. Address: ${wallet.address}`);
+      log('(The private key is never printed — it is written directly to ~/.dmemo/config.json, mode 0600.)\n');
     }
   }
-  log(`Wallet ${wallet.generated ? 'generated' : 'imported'}. Address: ${wallet.address}`);
-  log('(The private key is never printed — it is written directly to ~/.dmemo/config.json, mode 0600.)\n');
+
+  const address = wallet?.address ?? existing?.address ?? '';
 
   // --- Step 2: faucet / funding -----------------------------------------
   if (network === 'testnet') {
-    log(faucetInstructions(wallet.address));
+    log(faucetInstructions(address));
     log('');
     const shouldCheck = opts.checkBalanceOnce ?? (!nonInteractive && (await promptYesNo('Check balance now?', false)));
     if (shouldCheck) {
-      await pollBalanceOnce(wallet.address, network, log);
+      await pollBalanceOnce(address, network, log);
     } else {
       log('Skipping balance check. Re-run `dmemo setup --check-balance` any time.\n');
     }
   } else {
-    log(`Network: mainnet (chain ${MAINNET_CHAIN_ID}) — fund ${wallet.address} yourself; no faucet on mainnet.\n`);
+    log(`Network: mainnet (chain ${MAINNET_CHAIN_ID}) — fund ${address} yourself; no faucet on mainnet.\n`);
   }
 
   // --- Step 3: ~/.dmemo/config.json --------------------------------------
-  const { path: configPath } = writeDmemoConfig(
+  // When reusing, DMEMO_PRIVATE_KEY is deliberately absent from the updates:
+  // the merge preserves it, and the write cannot possibly disturb it.
+  const { path: configPath, backupPath } = writeDmemoConfig(
     {
-      DMEMO_PRIVATE_KEY: wallet.privateKey,
+      ...(wallet ? { DMEMO_PRIVATE_KEY: wallet.privateKey } : {}),
       DMEMO_NETWORK: network,
       // Not read by @dmemo/core's loadConfigFromEnv (derivable from the
       // key) — stored purely so `dmemo balance` and other CLI niceties
       // don't need to re-derive the address from the private key on every
       // invocation.
-      DMEMO_ADDRESS: wallet.address,
+      DMEMO_ADDRESS: address,
+      ...(wallet ? { DMEMO_KEY_SOURCE: 'generated' } : {}),
     },
-    env
+    env,
+    // Only ever true on the path that already passed the consent gate above.
+    { allowKeyReplacement: Boolean(wallet && existing) }
   );
   log(`Wrote ${configPath} (mode 0600).\n`);
+  if (backupPath && existing) {
+    log(recoveryHint(existing, backupPath));
+    log('');
+  }
 
   // --- Step 4: per-host install -------------------------------------------
   let hosts: SetupResult['hosts'] = {};
@@ -116,7 +166,61 @@ export async function runSetup(opts: SetupOptions = {}): Promise<SetupResult> {
   // --- Step 5: optional inference leg -------------------------------------
   log(INFERENCE_INSTRUCTIONS);
 
-  return { address: wallet.address, network, configPath, hosts };
+  return { address, network, configPath, hosts, walletReused: wallet === null, backupPath };
+}
+
+/** Generate or import, per flags and (when interactive) a prompt. Does not
+ * consider what is already on disk — that is the caller's gate. */
+async function obtainWallet(opts: SetupOptions, nonInteractive: boolean): Promise<WalletResult> {
+  if (opts.importKey) return importWallet(opts.importKey);
+  if (opts.newWallet || nonInteractive) return generateWallet();
+
+  const choice = (
+    await promptText('Generate a new wallet or import an existing key? [generate/import] ', 'generate')
+  ).toLowerCase();
+  if (choice.startsWith('i')) {
+    const key = await promptSecret('Paste your private key (input hidden, never echoed): ');
+    return importWallet(key);
+  }
+  return generateWallet();
+}
+
+/**
+ * The consent gate. Reached only when the user explicitly asked for a
+ * different key than the one configured. `--force` is the non-interactive
+ * escape hatch (same contract as `solana-keygen new --force`); without it an
+ * unattended run refuses rather than guessing.
+ */
+async function confirmReplacement(
+  existing: ExistingKeyInfo,
+  incomingAddress: string,
+  ctx: { nonInteractive: boolean; force?: boolean; log: (line: string) => void }
+): Promise<void> {
+  const { log } = ctx;
+  log('');
+  log('!! This replaces the wallet dMemo is already using.');
+  log(`   on record: ${existing.address ?? '<unreadable key>'} (${existing.source})`);
+  log(`   replacing with: ${incomingAddress}`);
+  log('   Memories on 0G are encrypted to the key on record. Nothing written');
+  log('   under it is readable by the new wallet — ever.');
+  log(`   ${recoveryHint(existing, null).split('\n').join('\n   ')}`);
+  log('');
+
+  if (ctx.force) {
+    log('Proceeding: --force was given. A timestamped backup will be written first.\n');
+    return;
+  }
+
+  if (ctx.nonInteractive) {
+    throw new Error(
+      `Refusing to replace the configured wallet ${existing.address ?? ''} without confirmation.\n` +
+        'Re-run interactively, or pass --force to replace it (the old config is backed up either way).'
+    );
+  }
+
+  const ok = await promptYesNo('Replace it?', false);
+  if (!ok) throw new Error('Aborted — the configured wallet is untouched.');
+  log('');
 }
 
 async function pollBalanceOnce(

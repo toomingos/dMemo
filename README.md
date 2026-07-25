@@ -24,9 +24,14 @@ to your wallet's public key, and persisted as an append-only chain of blobs on
 npx dmemo setup
 ```
 
-Generates (or imports) a wallet, walks you through testnet funding, writes `~/.dmemo/config`,
-and installs the adapter for every supported host it detects. The memory leg needs no web
-sign-ins, no API keys, and no accounts — just a funded testnet wallet.
+Generates (or imports) a wallet, walks you through testnet funding, writes
+`~/.dmemo/config.json`, and installs the adapter for every supported host it detects. The
+memory leg needs no web sign-ins, no API keys, and no accounts — just a funded testnet wallet.
+
+Re-running `setup` **keeps the wallet already on record** and just re-wires hosts — that key is
+the only thing that can decrypt your memories, so replacing it takes an explicit `--new-wallet`
+/ `--import-key` plus confirmation, and always leaves a timestamped `0600` backup
+([details](packages/setup-cli/README.md#replacing-a-wallet)).
 
 ## 30-second live demo
 

@@ -35,10 +35,11 @@ import {
   CURRENCY_SYMBOL,
   FAUCET_URL,
 } from './network.js';
-import { writeDmemoConfig, type NetworkName } from './dmemoConfig.js';
+import { writeDmemoConfig, inspectExistingKey, recoveryHint, type NetworkName } from './dmemoConfig.js';
 import { installDetectedHosts, type InstalledHosts } from './installHosts.js';
 import { derivationMessage, verifyAndDerive, DERIVATION_VERSION, type DerivedAccount } from './connect/derive.js';
 import { runConnectServer } from './connect/server.js';
+import { promptYesNo } from './prompt.js';
 
 export interface ConnectOptions {
   env?: NodeJS.ProcessEnv;
@@ -53,6 +54,9 @@ export interface ConnectOptions {
   noOpen?: boolean;
   port?: number;
   timeoutMs?: number;
+  /** Skip the confirmation asked before replacing a locally-generated
+   * (irreproducible) key. The old config is backed up regardless. */
+  force?: boolean;
   log?: (line: string) => void;
 }
 
@@ -85,6 +89,33 @@ export async function runConnect(opts: ConnectOptions = {}): Promise<ConnectResu
   log('dMemo connect — derive your memory key from a wallet signature\n');
   log(`Network: ${chainNameFor(network)} (chain ${chainIdFor(network)})`);
   log(`Scope:   ${scope}\n`);
+
+  // Consent gate, asked BEFORE a browser is spawned or anything is signed.
+  //
+  // Only a locally-generated key earns a prompt. The asymmetry is the whole
+  // point: a connect-derived account is reproducible forever from the same
+  // wallet + scope, so replacing one is undoable; a `dmemo setup` key is
+  // random and exists nowhere but this file, so replacing one is not.
+  const existing = inspectExistingKey(env);
+  if (existing && existing.source !== 'connect') {
+    log('!! A locally-generated wallet is already configured.');
+    log(`   on record: ${existing.address ?? '<unreadable key>'}`);
+    log('   Connecting derives a different account; memories encrypted to the');
+    log('   key on record are not readable by it — ever.');
+    log('   The old config will be backed up, and that backup is the only copy.');
+    log('');
+    if (!opts.force) {
+      if (!process.stdin.isTTY) {
+        throw new Error(
+          `Refusing to replace the configured wallet ${existing.address ?? ''} without confirmation.\n` +
+            'Re-run on a terminal, or pass --force (the old config is backed up either way).'
+        );
+      }
+      const ok = await promptYesNo('Continue and replace it?', false);
+      if (!ok) throw new Error('Aborted — the configured wallet is untouched.');
+      log('');
+    }
+  }
 
   let walletAddress = '';
   let derived: DerivedAccount | null = null;
@@ -171,10 +202,18 @@ export async function runConnect(opts: ConnectOptions = {}): Promise<ConnectResu
           DMEMO_KEY_VERSION: String(DERIVATION_VERSION),
           DMEMO_CONNECTED_WALLET: walletAddress,
         },
-        env
+        env,
+        // Consent for the irreproducible case was taken above, before the
+        // browser opened; a connect-derived key being replaced by another
+        // connect-derived key is recoverable by reconnecting the old wallet.
+        { allowKeyReplacement: true }
       );
       configPath = written.path;
       log(`  wrote ${configPath} (mode 0600)`);
+      if (written.backupPath && existing) {
+        log(`  replaced the previous account ${existing.address ?? ''}`);
+        for (const line of recoveryHint(existing, written.backupPath).split('\n')) log(`  ${line}`);
+      }
 
       if (!opts.skipHosts) hosts = installDetectedHosts(env, (line) => log(`  ${line}`));
     },

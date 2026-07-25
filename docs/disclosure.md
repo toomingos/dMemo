@@ -44,18 +44,47 @@ thing to lose track of — but it means:
   There is no customer support that can get your memories back.
 - **There is no custodian.** dMemo (the project) never sees, stores, or has
   any way to reconstruct your private key. `npx dmemo setup` generates it
-  locally or accepts one you paste in, writes it to `~/.dmemo/config` with
-  file mode `0600`, and that is the only copy dMemo's tooling ever creates.
-  If that file is lost and you didn't back up the key elsewhere, every
-  memory blob you ever wrote is permanently unreadable ciphertext sitting
-  on 0G Storage forever. It is not deleted — it is just noise to anyone
-  without the key, including you.
+  locally or accepts one you paste in, writes it to `~/.dmemo/config.json`
+  with file mode `0600`, and that is the only copy dMemo's tooling ever
+  creates. If that file is lost and you didn't back up the key elsewhere,
+  every memory blob you ever wrote is permanently unreadable ciphertext
+  sitting on 0G Storage forever. It is not deleted — it is just noise to
+  anyone without the key, including you.
 - **This is symmetric with the upside.** The same property that makes your
   memory yours and unreadable by dMemo, 0G, or anyone else also means
   nobody — including you, once the key is gone — can undo that.
 
 Back up your private key somewhere durable, the same way you would a
 seed phrase, if the memories stored under it matter to you.
+
+### What the tooling guarantees about *not* destroying it
+
+Because the key is irreplaceable, no dMemo command replaces one silently.
+This is a hard contract, covered by tests, not a best effort:
+
+- **Re-running `npx dmemo setup` keeps the wallet already on record.** It
+  does not mint a new one. Replacing takes an explicit `--new-wallet` or
+  `--import-key`, *and* consent — an interactive `y/N`, or `--force` for
+  unattended runs. Without either, an unattended run refuses and exits
+  non-zero rather than guessing.
+- **Any replacement writes a timestamped `0600` backup first**
+  (`~/.dmemo/config.json.<timestamp>.bak`), whichever command did it.
+  Backups are created with `COPYFILE_EXCL`, so a backup can never overwrite
+  a backup.
+- **A config that fails to parse is backed up before being replaced**, never
+  silently discarded — a stray comma in a hand edit must not cost you a key.
+- **The config is written atomically** (temp file + `rename`), so an
+  interrupted or crashed write cannot leave a truncated file.
+- **`npx dmemo connect` asks before it opens a browser**, but only when the
+  key on record is locally generated. A connect-derived account is
+  reproducible forever from the same wallet + scope, so replacing one is
+  undoable; a generated key exists nowhere but that file.
+
+What this does **not** give you: a recovery path if you delete `~/.dmemo`
+outright, lose the disk, or discard the backups. The guarantees above narrow
+the window for *accidental* key loss by dMemo's own tooling. They do not
+change §2 — you are still the only custodian, and an off-machine backup of
+your key is still the only real insurance.
 
 ## 3. What encryption actually happens, precisely
 

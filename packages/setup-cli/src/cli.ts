@@ -16,6 +16,8 @@ function parseArgs(argv: string[]) {
     fundAmount: undefined as string | undefined,
     noOpen: false,
     port: undefined as number | undefined,
+    newWallet: false,
+    force: false,
   };
   const rest = [...argv];
   const first = rest[0];
@@ -34,6 +36,8 @@ function parseArgs(argv: string[]) {
     else if (arg === '--fund-amount') args.fundAmount = rest[++i];
     else if (arg === '--no-open') args.noOpen = true;
     else if (arg === '--port') args.port = Number(rest[++i]);
+    else if (arg === '--new-wallet') args.newWallet = true;
+    else if (arg === '--force' || arg === '-f') args.force = true;
   }
   return args;
 }
@@ -58,13 +62,22 @@ function printHelp(): void {
       '  --no-open            Print the URL instead of launching a browser',
       '  --port <n>           Bind a fixed loopback port instead of an ephemeral one',
       '  --skip-hosts         Skip host detection/install (wallet + config only)',
+      '  --force, -f          Replace a locally-generated wallet without confirming',
       '',
       'Options for `setup`:',
       '  --yes, -y            Non-interactive: generate a wallet, skip prompts',
       '  --network <name>     testnet (default) | mainnet',
       '  --import-key <hex>   Import an existing private key instead of generating one',
+      '  --new-wallet         Mint a new wallet even though one is configured (asks first)',
+      '  --force, -f          Grant permission to replace the configured wallet',
       '  --skip-hosts         Skip host detection/install (wallet + config only)',
       '  --check-balance      Poll the wallet balance once after printing the faucet link',
+      '',
+      'About your wallet:',
+      '  ~/.dmemo/config.json holds the ONLY key that can decrypt your memories on',
+      '  0G Storage. Re-running `setup` keeps the wallet already on record; replacing',
+      '  it takes an explicit flag plus confirmation, and always writes a timestamped',
+      '  0600 backup of the old config next to it.',
       '',
       'Env overrides (mainly for sandboxed testing — never used against a real install):',
       '  DMEMO_HOME   overrides ~/.dmemo',
@@ -103,6 +116,7 @@ async function main(): Promise<number> {
       skipHosts: args.skipHosts,
       noOpen: args.noOpen,
       port: args.port,
+      force: args.force,
     });
     return 0;
   }
@@ -112,6 +126,8 @@ async function main(): Promise<number> {
       yes: args.yes,
       network: args.network,
       importKey: args.importKey,
+      newWallet: args.newWallet,
+      force: args.force,
       skipHosts: args.skipHosts,
       checkBalanceOnce: args.checkBalance || undefined,
     });

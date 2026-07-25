@@ -120,6 +120,19 @@ Hermes/Python = v1.1. Network: testnet Galileo first (D14), one-env-var mainnet 
     checkpoints hit this. Mitigations: benchmark harness durability gate (verify covering
     set for the whole restore-chain suffix BEFORE wiping local state) +
     `session.droppedFlushCount` (fail-open drops are now detectable).
+21. **`DMEMO_PRIVATE_KEY` is not a rotatable credential — treat every write of it as
+    destructive.** It is the only key that can decrypt a wallet's blobs on 0G, so replacing it
+    does not "reconfigure" anything, it orphans every memory written under it. Any code path
+    that writes the config must go through `writeDmemoConfig`, which refuses to replace a
+    *different* existing key unless the caller passes `allowKeyReplacement`, and always copies
+    the old file to a timestamped `0600` backup (`COPYFILE_EXCL`, so a backup can never clobber
+    a backup) before it does. Never add a second write path; never pass `allowKeyReplacement`
+    from a code path that hasn't already taken explicit user consent. Two corollaries that
+    caused real loss before they were fixed: a *non-atomic* config write can truncate the file
+    and destroy the key on a crash (use the temp+`rename` path), and treating an unparseable
+    config as `{}` silently discards the key inside it (back it up instead). Consent asymmetry:
+    a `connect`-derived key is reproducible from the same wallet + scope, a `setup`-generated
+    one exists nowhere else — only the latter earns a prompt.
 
 ---
 
