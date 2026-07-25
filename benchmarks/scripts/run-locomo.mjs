@@ -144,6 +144,21 @@ const openOpts = {
 // ---------------------------------------------------------------------------
 section('PASS 1: open fresh session + shim + ingest+predict-only');
 
+// T5.2 live finding: RUN_ID/PROJECT_NAME are deliberately PINNED across pass
+// 1 and pass 2 *within* one orchestrator invocation (that's what lets pass 2
+// skip re-ingestion via the harness's own on-disk IngestionCheckpoint while
+// still re-running every /search call fresh — see benchmarks/README.md).
+// But that pinning bites hard across SEPARATE invocations: a prior crashed
+// attempt (e.g. a wallet whose restore failed and got abandoned) leaves its
+// `_ingestion_*.json` checkpoint files sitting in the same `outputDir`, and
+// the harness will trust them and skip ingesting entirely into the BRAND
+// NEW session/wallet this invocation just opened — silently producing a
+// "0 memories ingested" run with no error (confirmed live: this is exactly
+// what happened on the attempt right after the first restore crash below).
+// Always start an invocation with a clean outputDir.
+const outputDir = path.join(RESULTS_DIR, `predicted_${PROJECT_NAME}`);
+fs.rmSync(outputDir, { recursive: true, force: true });
+
 const state = { session: await DmemoSession.open(openOpts) };
 if (state.session.restoreStats.restored) {
   console.warn('WARNING: expected a fresh (unrestored) session for a brand-new wallet');
@@ -174,7 +189,6 @@ for (const f of state.session.flushLog) {
 const pass1FlushLog = state.session.flushLog.map((f) => ({ ...f, costWei: f.costWei.toString() }));
 const pass1FlushCostWei = state.session.flushLog.reduce((s, f) => s + f.costWei, 0n);
 
-const outputDir = path.join(RESULTS_DIR, `predicted_${PROJECT_NAME}`);
 const checkpointsPre = path.join(REPORT_DIR, 'checkpoints_pre');
 copyQuestionResults(outputDir, checkpointsPre);
 const preFiles = fs.readdirSync(checkpointsPre).filter((f) => f.endsWith('.json'));
