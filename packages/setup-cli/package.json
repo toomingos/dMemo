@@ -1,0 +1,61 @@
+{
+  "name": "dmemo",
+  "version": "0.1.0",
+  "description": "dMemo onboarding CLI — `npx dmemo setup` generates/imports a wallet, writes ~/.dmemo/config.json, and wires the memory leg into whichever coding agent hosts (Claude Code, OpenCode, OpenClaw, Codex) are detected on the machine. Zero interactive web steps for the memory leg.",
+  "type": "module",
+  "bin": {
+    "dmemo": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.js",
+    "!dist/**/*.test.js.map",
+    "!dist/**/*.test.d.ts",
+    "!dist/**/*.test.d.ts.map",
+    "vendor"
+  ],
+  "scripts": {
+    "prebuild": "node scripts/vendor-codex-plugin.mjs",
+    "build": "pnpm run prebuild && tsc -b && node scripts/chmod-bin.mjs",
+    "test": "node --test $(find dist -name '*.test.js')",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "ethers": "^6.17.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "@types/node": "^20.14.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dmemo-ai/dmemo.git",
+    "directory": "packages/setup-cli"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "dmemo",
+    "0g",
+    "memory",
+    "cli",
+    "setup",
+    "claude-code",
+    "opencode",
+    "openclaw",
+    "codex"
+  ]
+}
