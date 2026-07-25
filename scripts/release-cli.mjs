@@ -69,7 +69,9 @@ try {
   const cleanSha = run('git', ['rev-parse', '--short', 'HEAD'], REPO);
   // A dirty tree means the built dist/ does not correspond to any commit. Say so
   // in the manifest rather than stamping a sha that cannot reproduce the payload.
-  const dirty = run('git', ['status', '--porcelain'], REPO).length > 0;
+  // Scoped to the package the payload is built from: unrelated churn elsewhere in
+  // the monorepo cannot change dist/, so flagging it would be a false alarm.
+  const dirty = run('git', ['status', '--porcelain', '--', PKG], REPO).length > 0;
   const sha = dirty ? `${cleanSha}-dirty` : cleanSha;
   if (dirty) {
     console.warn(
