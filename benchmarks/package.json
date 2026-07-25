@@ -1,0 +1,14 @@
+{
+  "name": "dmemo-benchmarks",
+  "private": true,
+  "version": "0.0.0",
+  "description": "T5.2 — LoCoMo benchmark harness shim + flush/restore invariance runner. NOT a pnpm workspace member (deliberately outside packages/*, see docs/benchmarks.md) — installs its own node_modules via plain npm so `pnpm -r build`/`pnpm -r test` never touch it.",
+  "type": "module",
+  "scripts": {
+    "shim": "node shim/server.mjs",
+    "run-invariance": "node scripts/run-locomo.mjs"
+  },
+  "dependencies": {
+    "ethers": "^6.17.0"
+  }
+}
