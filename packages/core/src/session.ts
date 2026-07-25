@@ -76,6 +76,9 @@ export interface RestoreStats {
   replayMs: number;
   totalMs: number;
   reembedMigrated: boolean;
+  /** Newest on-chain pointers skipped because their blob was unretrievable
+   * or undecodable — dangling Submit logs from failed uploads (gotcha 20). */
+  danglingPointersSkipped: number;
 }
 
 const DEFAULT_CHECKPOINT_K = 2;
@@ -116,6 +119,7 @@ export class DmemoSession {
   private historyFlushedCount: number;
   private flushChain: Promise<void> = Promise.resolve();
   private closed = false;
+  private droppedFlushBatches = 0;
 
   private constructor(opts: {
     memory: Mem0Memory;
@@ -198,6 +202,7 @@ export class DmemoSession {
       replayMs: 0,
       totalMs: 0,
       reembedMigrated: false,
+      danglingPointersSkipped: 0,
     };
 
     let seq = 0;
@@ -205,31 +210,58 @@ export class DmemoSession {
     let deltasSinceCheckpoint = 0;
     let historyFlushedCount = 0;
 
-    const pointer = await storage.resolveLatest();
-    restoreStats.pointerResolveMs = pointer?.elapsedMs ?? 0;
+    // A Submit log lands on-chain when the upload *transaction* is mined —
+    // BEFORE segment data is durable on storage nodes, so a crashed/failed
+    // upload leaves a dangling pointer shadowing the last good blob
+    // (gotcha 20). Try candidates newest-first until a fully retrievable,
+    // decodable chain is found.
+    const candidates = await storage.resolveCandidates();
+    restoreStats.pointerResolveMs = candidates[0]?.elapsedMs ?? 0;
+
+    let pointer: (typeof candidates)[number] | null = null;
+    let chain: DmemoBlob[] = [];
+    let replayMs = 0;
+    for (const candidate of candidates) {
+      try {
+        // NOTE: downloadMs/verifyMs/decryptMs (accumulated per-blob inside
+        // the chain-walk loop below) and replayMs are measured as DISJOINT
+        // spans — replayMs covers only decode+apply-to-journal+history-merge,
+        // which happens strictly after each blob's download/verify/decrypt —
+        // so that totalMs (their sum) does not double-count. Failed
+        // candidates' time is included: the stats measure real restore cost.
+        const attempt: DmemoBlob[] = [];
+        let cursor: string | null = candidate.rootHash;
+        while (cursor) {
+          const dl = await storage.downloadAndVerify(cursor);
+          restoreStats.downloadMs += dl.downloadMs;
+          restoreStats.verifyMs += dl.verifyMs;
+          restoreStats.decryptMs += dl.decryptMs;
+          const tDecodeStart = performance.now();
+          const blob = decodeBlob(dl.plaintext);
+          attempt.push(blob);
+          replayMs += performance.now() - tDecodeStart;
+          if (blob.kind === 'checkpoint') break; // fully materialized — stop walking further back
+          cursor = blob.meta.prevRootHash;
+        }
+        pointer = candidate;
+        chain = attempt;
+        break;
+      } catch (e) {
+        restoreStats.danglingPointersSkipped++;
+        console.warn(
+          `[dmemo] on-chain pointer txSeq ${candidate.txSeq} (${candidate.rootHash}) is not restorable ` +
+            `(${(e as Error).message}); walking back to the previous pointer`
+        );
+      }
+    }
+    if (!pointer && candidates.length > 0) {
+      throw new Error(
+        `dmemo restore failed: none of the ${candidates.length} most recent on-chain pointers ` +
+          `(txSeq ${candidates[candidates.length - 1]!.txSeq}..${candidates[0]!.txSeq}) were retrievable`
+      );
+    }
 
     if (pointer) {
-      // NOTE: downloadMs/verifyMs/decryptMs (accumulated per-blob inside the
-      // chain-walk loop below) and replayMs are measured as DISJOINT spans —
-      // replayMs covers only decode+apply-to-journal+history-merge, which
-      // happens strictly after each blob's download/verify/decrypt — so that
-      // totalMs (their sum) does not double-count the download/verify/
-      // decrypt time. Do not fold the download call inside the replay timer.
-      const chain: DmemoBlob[] = [];
-      let cursor: string | null = pointer.rootHash;
-      let replayMs = 0;
-      while (cursor) {
-        const dl = await storage.downloadAndVerify(cursor);
-        restoreStats.downloadMs += dl.downloadMs;
-        restoreStats.verifyMs += dl.verifyMs;
-        restoreStats.decryptMs += dl.decryptMs;
-        const tDecodeStart = performance.now();
-        const blob = decodeBlob(dl.plaintext);
-        chain.push(blob);
-        replayMs += performance.now() - tDecodeStart;
-        if (blob.kind === 'checkpoint') break; // fully materialized — stop walking further back
-        cursor = blob.meta.prevRootHash;
-      }
       chain.reverse(); // oldest (base) -> newest
 
       const tApplyStart = performance.now();
@@ -248,6 +280,7 @@ export class DmemoSession {
       const newest = chain[chain.length - 1]!;
       seq = newest.meta.seq + 1;
       prevRootHash = pointer.rootHash;
+      storage.savePointer(pointer); // cache the pointer that actually restored, not the newest log
       historyFlushedCount = historyMap.size;
       deltasSinceCheckpoint = chain[0]!.kind === 'checkpoint' ? chain.length - 1 : chain.length;
 
@@ -288,6 +321,14 @@ export class DmemoSession {
       historyFlushedCount,
       restoreStats,
     });
+  }
+
+  /** Batches dropped by the fail-open double-failure path in runFlush().
+   * Anything > 0 means local memories exist that were NEVER persisted
+   * remotely — callers that need durability (benchmarks, migration tools)
+   * must check this before wiping local state. */
+  get droppedFlushCount(): number {
+    return this.droppedFlushBatches;
   }
 
   /** Fire-and-forget flush (D4): never blocks the caller. Internally
@@ -345,6 +386,7 @@ export class DmemoSession {
       try {
         await attempt();
       } catch (e2) {
+        this.droppedFlushBatches += 1;
         console.error(
           `[dmemo] flush failed twice — dropping this batch (fail-open, ` +
             `${vectorOps.length} vector ops / ${historyEntries.length} history entries not persisted remotely this round): ${(e2 as Error).message}`

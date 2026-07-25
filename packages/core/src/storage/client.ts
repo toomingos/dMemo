@@ -49,6 +49,24 @@ export class MerkleVerifyError extends Error {
 }
 
 const DEFAULT_UPLOAD_TIMEOUT_MS = 120_000;
+const DEFAULT_POINTER_CANDIDATES = 8;
+
+/**
+ * Recompute the on-chain dataMerkleRoot from a Submit event's submission
+ * nodes (left-aligned subtree roots): right-fold keccak256, i.e.
+ * root = nodes[n-1].root, then for i = n-2..0: root = keccak(nodes[i].root ‖ root).
+ * Verified live against zgs_getFileInfo(...).tx.dataMerkleRoot (gotcha 20).
+ * Deriving the root from the log itself removes the storage-node round-trip
+ * (selectNodes + getFileInfoByTxSeq) from the restore critical path.
+ */
+function submissionRootFromNodes(nodes: readonly { root: string }[]): string {
+  if (nodes.length === 0) throw new Error('Submit event submission has no merkle nodes');
+  let root = nodes[nodes.length - 1]!.root;
+  for (let i = nodes.length - 2; i >= 0; i--) {
+    root = ethers.keccak256(ethers.concat([nodes[i]!.root, root]));
+  }
+  return root;
+}
 
 function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => Error): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -227,13 +245,20 @@ export class StorageClient {
   }
 
   /**
-   * Resolve the latest rootHash written by this wallet. Returns null for a
-   * genuinely fresh wallet (no Submit logs ever, anywhere) — callers treat
-   * that as "start a fresh store". Cache is consulted first (soft
-   * optimization); on cache miss, paginates backwards in
-   * `BLOCK_RANGE_CAP`-block windows to cover dormant wallets.
+   * Resolve the newest pointer candidates written by this wallet, newest
+   * first. Returns [] for a genuinely fresh wallet (no Submit logs ever,
+   * anywhere) — callers treat that as "start a fresh store". Cache is
+   * consulted first (soft optimization); on cache miss, paginates backwards
+   * in `BLOCK_RANGE_CAP`-block windows to cover dormant wallets.
+   *
+   * Returns *candidates* rather than a single pointer because a Submit log
+   * lands on-chain when the upload transaction is mined — BEFORE segment
+   * data is durable on the storage nodes. A crashed or failed upload
+   * therefore leaves a dangling pointer that shadows the last good blob
+   * (gotcha 20); restore must be able to walk back. rootHash is computed
+   * locally from the event's submission nodes — no storage-node RPC.
    */
-  async resolveLatest(): Promise<ResolvedPointer | null> {
+  async resolveCandidates(maxCandidates = DEFAULT_POINTER_CANDIDATES): Promise<ResolvedPointer[]> {
     const t0 = performance.now();
     const cached = getPointerCacheEntry(this.pointerCachePath, this.network.network, this.wallet.address);
 
@@ -257,34 +282,45 @@ export class StorageClient {
     }
 
     if (logs.length === 0) {
-      return null; // fresh wallet, no prior writes anywhere
+      return []; // fresh wallet, no prior writes anywhere
     }
 
-    logs.sort((a, b) => a.blockNumber - b.blockNumber || a.index - b.index);
-    const latestLog = logs[logs.length - 1]!;
-    const decoded = this.flowIface.parseLog(latestLog);
-    if (!decoded) throw new Error('failed to decode Submit log');
-    const txSeq = Number(decoded.args.submissionIndex);
-
-    const [selectedNodes, selectErr] = await this.indexer.selectNodes(1);
-    if (selectErr) throw new Error(`selectNodes error: ${selectErr.message ?? String(selectErr)}`);
-    const node = selectedNodes[0];
-    if (!node) throw new Error('selectNodes returned no nodes');
-    const fileInfo = await node.getFileInfoByTxSeq(txSeq);
-    if (!fileInfo) throw new Error(`storage node has no file info for txSeq ${txSeq}`);
-    const rootHash = fileInfo.tx.dataMerkleRoot;
-
+    logs.sort((a, b) => b.blockNumber - a.blockNumber || b.index - a.index); // newest first
     const elapsedMs = performance.now() - t0;
+    const candidates: ResolvedPointer[] = [];
+    for (const log of logs.slice(0, maxCandidates)) {
+      const decoded = this.flowIface.parseLog(log);
+      if (!decoded) continue;
+      const txSeq = Number(decoded.args.submissionIndex);
+      const nodes = decoded.args.submission.nodes as readonly { root: string }[];
+      candidates.push({
+        rootHash: submissionRootFromNodes(nodes),
+        txSeq,
+        blockNumber: log.blockNumber,
+        elapsedMs,
+      });
+    }
+    if (candidates.length === 0) throw new Error('failed to decode any Submit log');
+    return candidates;
+  }
 
+  /** Persist a known-good pointer to the local cache (soft optimization). */
+  savePointer(p: Pick<ResolvedPointer, 'rootHash' | 'txSeq' | 'blockNumber'>): void {
     const entry: PointerCacheEntry = {
       network: this.network.network,
       wallet: this.wallet.address,
-      lastBlock: latestLog.blockNumber,
-      txSeq,
-      rootHash,
+      lastBlock: p.blockNumber,
+      txSeq: p.txSeq,
+      rootHash: p.rootHash,
     };
     savePointerCacheEntry(this.pointerCachePath, entry);
+  }
 
-    return { rootHash, txSeq, blockNumber: latestLog.blockNumber, elapsedMs };
+  /** Newest pointer only (back-compat convenience over resolveCandidates). */
+  async resolveLatest(): Promise<ResolvedPointer | null> {
+    const [latest] = await this.resolveCandidates(1);
+    if (!latest) return null;
+    this.savePointer(latest);
+    return latest;
   }
 }
