@@ -58,8 +58,15 @@ function readState(stateDir: string): DreamState {
 }
 
 function writeState(stateDir: string, state: DreamState): void {
-  ensureDir(stateDir);
-  fs.writeFileSync(statePath(stateDir), JSON.stringify(state, null, 2));
+  // Fail-open like `readState` above: an unwritable stateDir must never
+  // propagate out of `incrementSessionCount`/`recordDreamCompletion` into a
+  // host hook. Losing a counter bump only delays consolidation.
+  try {
+    ensureDir(stateDir);
+    fs.writeFileSync(statePath(stateDir), JSON.stringify(state, null, 2));
+  } catch {
+    /* state is advisory — gates simply stay closed */
+  }
 }
 
 /** Call from `agent_end` on every interactive turn to advance the session counter. */

@@ -46,6 +46,12 @@ export type ShutdownSignal = 'SIGTERM' | 'SIGINT' | 'SIGHUP';
 
 const DEFAULT_SIGNALS: readonly ShutdownSignal[] = ['SIGTERM', 'SIGINT', 'SIGHUP'];
 
+/** The still-attached uninstall from the most recent `installGracefulShutdown()`,
+ * or null. See the idempotency note on `installGracefulShutdown` — this exists
+ * because `process` is a genuine process-wide singleton and hosts can legitimately
+ * install more than once per process. */
+let activeUninstall: (() => void) | null = null;
+
 /** 4s: long enough for a small delta upload (typical case, T0.3 measured
  * cold end-to-end well under this), short enough that an interactive
  * Ctrl-C (SIGINT) doesn't feel hung. Judgement call — see the F7 report;
@@ -93,16 +99,35 @@ export interface GracefulShutdownOptions {
  * (a plain `process.on(signal, ...)` listener does not — verified against
  * this repo's Node runtime — only live handles like timers/sockets do), so
  * a clean process with nothing to flush still exits promptly.
+ *
+ * Installing twice in one process replaces the first install rather than
+ * stacking on top of it. This is not defensive padding — OpenClaw's plugin
+ * loader calls `register()` at least twice per process by design (a
+ * non-activating discovery pass, then the real one), and it rolls back only
+ * the registries it owns; a `process.on(signal, ...)` listener is invisible to
+ * that rollback. Two independent listener sets break `finish()`'s core
+ * assumption that removing *its own* listener leaves the default disposition:
+ * whichever instance settles first (typically the discovery pass, whose
+ * `dispose()` is a no-op) re-delivers the signal into the other instance
+ * mid-flush, which reads it as a second signal and force-SIGKILLs before the
+ * flush completes — destroying the exact durability guarantee this module
+ * exists to provide. Tearing down the previous install keeps at most one
+ * listener set live per process.
  */
 export function installGracefulShutdown(opts: GracefulShutdownOptions): () => void {
   const signals = opts.signals ?? DEFAULT_SIGNALS;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS;
+
+  // Drop any previous still-attached install before adding ours.
+  activeUninstall?.();
+  activeUninstall = null;
 
   let shuttingDown = false;
   let settled = false;
 
   function uninstall(): void {
     for (const s of signals) process.removeListener(s, onSignal);
+    if (activeUninstall === uninstall) activeUninstall = null;
   }
 
   function report(r: ShutdownReport): void {
@@ -158,6 +183,7 @@ export function installGracefulShutdown(opts: GracefulShutdownOptions): () => vo
   }
 
   for (const s of signals) process.on(s, onSignal);
+  activeUninstall = uninstall;
   return uninstall;
 }
 

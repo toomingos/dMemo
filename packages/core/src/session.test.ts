@@ -148,6 +148,62 @@ test('resolveRestoreChain: mixed corrupt-then-transient — refuses even though 
   );
 });
 
+test('resolveRestoreChain: an unreachable head we ourselves abandoned is walked back, not deferred on', async () => {
+  // The exact live failure this rule exists for: an upload timed out AFTER
+  // its Submit tx mined, so the wallet gained pointers with no segment data
+  // behind them — permanently. Without orphanSuspect these look transient and
+  // every future session refuses forever, wedging the wallet.
+  const table = {
+    dead1: new BlobUnretrievableError('dead1', 'transient', 'timeout'),
+    dead2: new BlobUnretrievableError('dead2', 'transient', 'timeout'),
+    good: checkpoint(0, null),
+  };
+  const result = await resolveRestoreChain(
+    [
+      { ...pointer('dead1', 3), orphanSuspect: true },
+      { ...pointer('dead2', 2), orphanSuspect: true },
+      pointer('good', 1),
+    ],
+    { downloadAndVerify: fakeDownloader(table) }
+  );
+  assert.equal(result.pointer.rootHash, 'good');
+  assert.deepEqual(
+    result.skipped.map((s) => s.reason),
+    ['orphaned', 'orphaned']
+  );
+});
+
+test('resolveRestoreChain: an orphan-suspect ANCESTOR still defers — only the head can be our wreckage', async () => {
+  // We abandoned one submission and never chained onto it, so `mid` (reached
+  // by walking prevRootHash) was written by a confirmed upload. Its being
+  // unreachable is a real outage, and degrading past it would orphan an
+  // intact blob.
+  const table = {
+    head: delta(1, 'mid'),
+    mid: new BlobUnretrievableError('mid', 'transient', 'timeout'),
+    good: checkpoint(0, null),
+  };
+  await assert.rejects(
+    () =>
+      resolveRestoreChain([{ ...pointer('head', 3), orphanSuspect: true }, pointer('good', 1)], {
+        downloadAndVerify: fakeDownloader(table),
+      }),
+    (err: unknown) => err instanceof RestoreTemporarilyUnavailableError
+  );
+});
+
+test('resolveRestoreChain: without the local marker an unreachable head still defers (unchanged)', async () => {
+  const table = {
+    head: new BlobUnretrievableError('head', 'transient', 'timeout'),
+    good: checkpoint(0, null),
+  };
+  await assert.rejects(
+    () =>
+      resolveRestoreChain([pointer('head', 2), pointer('good', 1)], { downloadAndVerify: fakeDownloader(table) }),
+    (err: unknown) => err instanceof RestoreTemporarilyUnavailableError
+  );
+});
+
 test('resolveRestoreChain: a corrupt blob that is NOT the head discards only that candidate', async () => {
   // headOk is a perfectly good, decodable head — but its ancestor (midBad,
   // reached by walking prevRootHash) is corrupt. The whole headOk candidate

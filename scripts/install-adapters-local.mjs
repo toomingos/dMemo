@@ -11,7 +11,7 @@
 //   Claude Code  `claude plugin marketplace add <local dir>`      (marketplace source accepts a path)
 //   Codex        vendored install-codex-hooks.cjs -> ~/.codex/hooks.json  (already fully local)
 //   OpenCode     ~/.config/opencode/plugins/dmemo.ts shim         (global plugin dir, docs: opencode.ai/docs/plugins)
-//   OpenClaw     `openclaw plugins install --link <pkg dir>` + ~/.openclaw/openclaw.json merge
+//   OpenClaw     `openclaw plugins install --force <staged bundle>` + ~/.openclaw/openclaw.json merge
 //
 // Everything is idempotent, skips hosts that aren't installed, and supports
 // `--uninstall`. It never writes a private key: all four hosts read
@@ -295,7 +295,45 @@ function stageOpenClawBundle() {
     platform: 'node',
     target: 'node18',
     format: 'esm',
-    outfile: path.join(staging, 'dist', 'index.js'),
+    // Fail-open bug fix (2026-07-25 live E2E against OpenClaw 2026.7.1-2):
+    // `@dmemo/core`'s session.ts intentionally does `await
+    // import('mem0ai/oss')` LAZILY, only inside `DmemoSession.open()`, so
+    // that a missing better-sqlite3/pg (gotcha 3) only breaks a memory
+    // *operation*, never the plugin's module load. Single-outfile esbuild
+    // ESM bundling defeats that: with no `--splitting`, esbuild has nowhere
+    // to put a dynamically-imported module's code but inline it into the
+    // one output file, and since ESM `import` declarations can only appear
+    // at a module's top level (never inside a function body), every
+    // `external` import reachable from that inlined module — including
+    // better-sqlite3/pg, reached only via the dynamic import — gets hoisted
+    // to a real top-level `import` in dist/index.js. That import is
+    // resolved before ANY of the file's code runs, so OpenClaw's plugin
+    // loader (`loader-D8d2EvVh.js`: `mod = loadPluginModule(safeSource)`
+    // inside a try/catch that marks the plugin `status:"error"` on throw,
+    // which `maybeThrowOnPluginLoadError` then turns into a fatal
+    // `PluginLoadFailureError` — both call sites pass `throwOnLoadError:
+    // true`) sees the "Cannot find module 'better-sqlite3'" error at
+    // top-level import time, before `register()` (or its own try/catch) is
+    // ever reached, taking the whole host down. Verified live: without
+    // `splitting`, importing the built bundle throws synchronously when
+    // better-sqlite3 isn't resolvable; with it, the import succeeds,
+    // `register()` runs and returns synchronously (OpenClaw's
+    // `runPluginRegisterSync` requires this — an async/Promise-returning
+    // `register()` is itself treated as a load failure, so this can never
+    // be "fixed" by making register() async instead), and the
+    // better-sqlite3 error only surfaces inside the plugin's own hook
+    // try/catches (unmodified — this is a build-only fix) the first time a
+    // hook actually opens a session, which is the documented fail-open
+    // contract. `outdir`+`splitting: true` moves the dynamically-imported
+    // `mem0ai/oss` (and therefore better-sqlite3/pg) into its own chunk
+    // file that Node only resolves when the dynamic `import()` actually
+    // executes — dist/index.js keeps its required filename (esbuild names
+    // the entry chunk after the entry point, `index.ts` -> `index.js`) so
+    // the `openclaw.extensions`/`main` manifest fields need no change; the
+    // extra chunk file just has to travel alongside it, which
+    // `openclaw plugins install`'s directory copy already does.
+    outdir: path.join(staging, 'dist'),
+    splitting: true,
     external: [...externals.native, ...externals.ossOptionalBackends],
     // @dmemo/core reaches for `import.meta.url` (createRequire) and CJS
     // interop inside the bundle needs real `require`/__dirname — esbuild
@@ -384,23 +422,57 @@ function installedOpenClawDir() {
 // bindings can't be inlined). The hook bundles solve this with
 // native-bootstrap.ts's node_modules symlink next to the running file; do
 // the same for the installed OpenClaw plugin — but AFTER install, so the
-// code-safety scan never sees the escaping symlink.
+// code-safety scan never sees the escaping symlink. `openclaw plugins
+// install --force` (this script) / `plugins install <plugin-dir> --force`
+// (e2e-setup.mjs) both recreate the extension directory from scratch on
+// every call, which is exactly what destroys a previous run's symlink — so
+// this must run after EVERY install, not just the first one.
+//
+// Returns a status object instead of silently swallowing failures, so the
+// caller can report an honest 'warn' (never a false 'ok') when linking
+// didn't actually happen — e.g. because ~/.dmemo/native was never warmed up
+// (`--skip-warmup`, or a warmup that failed).
 function linkNativeDepsInto(dir) {
-  if (!dir) return;
+  if (!dir) return { linked: false, reason: 'no installed plugin directory found' };
   const target = path.join(DMEMO_HOME, 'native', 'node_modules');
-  if (!fs.existsSync(target)) return;
+  if (!fs.existsSync(target)) {
+    return { linked: false, reason: `native deps not warmed up yet (missing ${target})` };
+  }
   const link = path.join(dir, 'node_modules');
   try {
     if (fs.existsSync(link) || fs.lstatSync(link, { throwIfNoEntry: false })) fs.rmSync(link, { recursive: true, force: true });
     fs.symlinkSync(target, link, 'dir');
-  } catch {
-    /* best effort — the plugin fails open if the native deps don't resolve */
+    return { linked: true };
+  } catch (err) {
+    // Best effort — the plugin fails open if the native deps don't resolve —
+    // but the caller must still know linking didn't happen.
+    return { linked: false, reason: errMsg(err).split('\n')[0] };
   }
 }
 
-// `openclaw plugins install --link <dir>` links a development checkout
-// instead of copying it, so rebuilds land without reinstalling. Config lives
-// in ~/.openclaw/openclaw.json (JSON5; $OPENCLAW_CONFIG_PATH overrides).
+// Real proof the plugin will actually be able to `require()`/`import()` the
+// native deps at runtime — a present symlink is necessary but not
+// sufficient (e.g. a stale/partial ~/.dmemo/native from a failed npm
+// install would still pass the `fs.existsSync(target)` check above).
+function verifyNativeDepsResolve(dir) {
+  const req = createRequire(path.join(dir, 'package.json'));
+  const missing = ['better-sqlite3', 'fastembed'].filter((pkg) => {
+    try {
+      req.resolve(pkg);
+      return false;
+    } catch {
+      return true;
+    }
+  });
+  return { ok: missing.length === 0, missing };
+}
+
+// NOT `--link`: linking a pnpm workspace checkout trips OpenClaw's code-safety
+// scan, which rejects a `node_modules` symlink whose target escapes the install
+// root (see `stageOpenClawBundle` below). So we stage a flat, dependency-free
+// esbuild bundle and `plugins install --force` that — the staging dir is
+// rebuilt from scratch every run, so re-running is what picks up a rebuild.
+// Config lives in ~/.openclaw/openclaw.json (JSON5; $OPENCLAW_CONFIG_PATH overrides).
 function openclaw() {
   if (!have('openclaw')) {
     return record('openclaw', 'skip', 'openclaw CLI not on PATH — `npm i -g openclaw@latest`');
@@ -434,7 +506,17 @@ function openclaw() {
     return record('openclaw', 'fail', errMsg(err).split('\n')[0]);
   }
 
-  linkNativeDepsInto(installedOpenClawDir());
+  const installedDir = installedOpenClawDir();
+  const linkResult = linkNativeDepsInto(installedDir);
+  let nativeDepsWarning;
+  if (!linkResult.linked) {
+    nativeDepsWarning = `native deps not linked (${linkResult.reason}) — memory will fail open until \`node ${path.relative(REPO, path.join(CODEX_PLUGIN_SCRIPTS, 'status.cjs'))}\` or a rerun warms up ~/.dmemo/native`;
+  } else {
+    const verified = verifyNativeDepsResolve(installedDir);
+    if (!verified.ok) {
+      nativeDepsWarning = `node_modules symlinked but ${verified.missing.join(', ')} still fail to resolve — memory will fail open`;
+    }
+  }
 
   // Claim the exclusive memory slot + supply config. `privateKey` is
   // deliberately absent: config.ts falls back to ~/.dmemo/config.json (the
@@ -448,7 +530,7 @@ function openclaw() {
     return record(
       'openclaw',
       'warn',
-      `plugin linked, but ${cfgPath} is JSON5/unparseable — add plugins.slots.memory="dmemo" by hand (see packages/openclaw-plugin/README.md)`
+      `plugin linked, but ${cfgPath} is JSON5/unparseable — add plugins.slots.memory="dmemo" by hand (see packages/openclaw-plugin/README.md)${nativeDepsWarning ? `; also ${nativeDepsWarning}` : ''}`
     );
   }
 
@@ -474,6 +556,9 @@ function openclaw() {
   };
   fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
   fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + '\n');
+  if (nativeDepsWarning) {
+    return record('openclaw', 'warn', `memory slot claimed in ${cfgPath}, but ${nativeDepsWarning}`);
+  }
   return record('openclaw', 'ok', `linked + memory slot claimed in ${cfgPath}`);
 }
 

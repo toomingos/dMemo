@@ -17,6 +17,8 @@
 //     UNCONDITIONALLY below (see `capture()` and `dream-gate.ts`'s
 //     `runDreamBatch`) — see `config.ts`'s `infer` field doc for why this is
 //     hardcoded rather than wired to the 0G Router today.
+import nodeFs from "node:fs";
+import nodePath from "node:path";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { DmemoSession, installGracefulShutdown } from "@dmemo/core";
 import { parseConfig, type DmemoOpenClawConfig } from "./config.js";
@@ -26,7 +28,107 @@ import {
   effectiveUserId,
 } from "./isolation.js";
 import { incrementSessionCount, runDreamBatch, type DreamMutation } from "./dream-gate.js";
-import { renderMemoryBlock, extractTurns, sanitizeQuery } from "./recall.js";
+import {
+  renderMemoryBlock,
+  extractTurns,
+  sanitizeQuery,
+  newMessagesSince,
+  sanitizeTurns,
+} from "./recall.js";
+
+// ==========================================================================
+// E1 capture-progress state — a tiny sibling of dream-gate.ts's own
+// stateDir-backed JSON file, for the SAME reason: openclaw 2026.7.1-2's
+// `agent_end` hook always hands back the full cumulative session transcript,
+// never a delta (see recall.ts's `newMessagesSince` doc for the host-source
+// citation), and the live e2e run showed a different `pid` per turn — so
+// this cannot be an in-memory Map, it has to survive a process restart
+// between turns. Kept separate from dream-gate.ts's own state file (that one
+// tracks a single global consolidation clock, not per-session counts) and
+// deliberately NOT added to that file, which is ported near-verbatim from
+// the fork base (T3.3/D18) and out of scope here.
+//
+// O6 (researched, answer: NOT redundant — keep this state): checked whether
+// mem0 offers any native dedup/idempotency on `add()` that would make this
+// count-tracking unnecessary. It does not, for `infer: false`:
+//   - Installed `mem0ai@3.1.1` OSS bundle
+//     (`node_modules/.pnpm/mem0ai@3.1.1.../mem0ai/dist/oss/index.mjs`):
+//     `addToVectorStore()` takes an early `if (!infer) { ...createMemory()
+//     for every message... }` branch (~L16593-16610) that calls
+//     `createMemory()` unconditionally per message. `createMemory()`
+//     (~L17456-17475) always mints a fresh `uuidv4()` and calls
+//     `vectorStore.insert()` with NO prior existence/hash check — the
+//     hash-based dedup block (`existingHashes`/`seenHashes`, ~L16713-16726)
+//     lives entirely inside the `infer: true` LLM-extraction branch and is
+//     unreachable when `infer` is false. `AddMemoryOptions`
+//     (`dist/oss/index.d.mts:592-599`) has no id/upsert/`memory_id` field —
+//     there is no way to request an idempotent add.
+//   - Confirmed against upstream docs via Context7 (`/mem0ai/mem0`,
+//     `integrations/mem0-plugin/skills/mem0/SKILL.md`): "To avoid duplicate
+//     memories, do not mix infer=True (default) and infer=False... infer=False
+//     stores raw text, potentially leading to duplicates" — an explicit
+//     upstream admission that infer:false has no dedup of its own.
+//   - Checked the fork base this plugin descends from
+//     (`mem0ai/mem0` GitHub, `integrations/openclaw/index.ts`): its
+//     `agent_end` auto-capture handler (~L842-1056) never sets `infer` in
+//     `buildAddOptions()` (~L283-299), so it defaults to `infer: true` and
+//     leans entirely on mem0's LLM-based extraction/dedup pipeline for
+//     "duplicates merged" — the exact mechanism D17/gotcha-3 rule out for
+//     dMemo (no LLM call on this path, ever). `filtering.ts`'s
+//     "deduplication" is pre-extraction noise-collapsing across one batch of
+//     messages, not persistence-level dedup against prior stored memories.
+// Conclusion: nothing native to adopt here. This hand-rolled progress count
+// is the only thing preventing dMemo from re-storing the same turn on every
+// `agent_end` resend (E1) — it is solving a different problem than
+// content-level dedup anyway (which messages are NEW vs. already-seen, not
+// "is this text a duplicate of stored text"), and no mem0-native mechanism
+// covers even that. Do not re-open this without a version bump changelog
+// entry showing mem0 added an infer:false-compatible dedup/upsert path.
+// ==========================================================================
+const CAPTURE_STATE_FILE = "capture-state.json";
+/** Long-lived hosts must not grow this file forever; oldest tracked session
+ * is evicted first once the cap is hit (same LRU-by-insertion-order shape as
+ * `opencode-plugin/src/sessionTurns.ts`'s `MAX_TRACKED_SESSIONS`). */
+const MAX_TRACKED_CAPTURE_SESSIONS = 256;
+
+function captureStatePath(stateDir: string): string {
+  return nodePath.join(stateDir, CAPTURE_STATE_FILE);
+}
+
+function readCaptureState(stateDir: string): Record<string, number> {
+  try {
+    const parsed: unknown = JSON.parse(nodeFs.readFileSync(captureStatePath(stateDir), "utf-8"));
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, number>) : {};
+  } catch {
+    return {}; // no file yet, or corrupt — treat as "nothing captured so far"
+  }
+}
+
+function writeCaptureState(stateDir: string, state: Record<string, number>): void {
+  try {
+    nodeFs.mkdirSync(stateDir, { recursive: true });
+    nodeFs.writeFileSync(captureStatePath(stateDir), JSON.stringify(state));
+  } catch {
+    // Fail-open: losing this write only means the next agent_end call
+    // re-slices from a stale (or zero) count for this session — a
+    // duplicate re-capture, never a thrown error and never lost content.
+  }
+}
+
+/** Mutate `state` in place to record `sessionKey`'s new cumulative count and
+ * persist it, evicting the oldest tracked session first past the cap. */
+function updateCaptureState(
+  stateDir: string,
+  state: Record<string, number>,
+  sessionKey: string,
+  newCount: number,
+): void {
+  delete state[sessionKey]; // re-insert below so it becomes MRU by key order
+  const keys = Object.keys(state);
+  if (keys.length >= MAX_TRACKED_CAPTURE_SESSIONS) delete state[keys[0]!];
+  state[sessionKey] = newCount;
+  writeCaptureState(stateDir, state);
+}
 
 export const PLUGIN_ID = "dmemo";
 
@@ -153,6 +255,74 @@ export function register(api: OpenClawPluginApi, openSession: SessionOpener = de
 
   const userIdFor = (sessionKey: string | undefined) => effectiveUserId(cfg.scope, sessionKey);
 
+  // E2: the exact recall block `before_prompt_build` injected into a
+  // session's NEXT prompt, remembered here for `capture()` to strip back off
+  // before storage (host bakes it into the prompt text — see recall.ts's
+  // `sanitizeCapturedText` doc for the citation). Same-turn/same-process
+  // correlation only, so an in-memory Map is fine (unlike the E1 counter
+  // above, this never needs to survive a process restart: recall and the
+  // capture of that same turn happen in one before_prompt_build/agent_end
+  // pair). `take*` drains+clears on read, mirroring `opencode-plugin/src/
+  // sessionTurns.ts`'s `takePendingContext` — a stale block must never leak
+  // into a LATER, unrelated turn's capture.
+  //
+  // O4 (closed as a non-issue, not a latent bug): it is STRUCTURALLY
+  // impossible for one turn's before_prompt_build and agent_end to land in
+  // different processes, verified against the installed host
+  // (openclaw@2026.7.1-2, `~/.npm-global/lib/node_modules/openclaw/`), not
+  // just the ambient .d.ts:
+  //   1. Hook dispatch is always a same-process, direct JS function call —
+  //      `runVoidHook`/`runModifyingHook` invoke `hook.handler(event, ctx)`
+  //      straight from the registered closure; no IPC/serialization/worker
+  //      boundary exists anywhere in that path
+  //      (`dist/hook-runner-global-BmIrGlLG.js:458-514`).
+  //   2. `docs/plugins/architecture.md:446`: "Native OpenClaw plugins run
+  //      **in-process** with the Gateway... same process-level trust
+  //      boundary as core code" — plugin closures (this Map included) live
+  //      for the process's whole lifetime, not per-hook.
+  //   3. Traced both agent-execution backends end-to-end: the embedded
+  //      harness's `runEmbeddedAttempt` (`dist/selection-JInn13lc.js:11343`)
+  //      calls `resolvePromptBuildHookResult` (before_prompt_build, :13660)
+  //      then, via a plain sequential `await` later in that SAME enclosing
+  //      function, `runAgentEndSideEffects` (agent_end, :14591). The
+  //      CLI-backed harness's `runCliAgentInternal`
+  //      (`dist/cli-runner-DE2P2Dy_.js:261`) shows the identical shape:
+  //      `await prepareCliRunContext(params)` (:315, before_prompt_build)
+  //      then `await runPreparedCliAgent(context)` (:341), which fires
+  //      agent_end via `runCliAgentEndHook` (:743+) — one continuous async
+  //      call stack, one process, for both hooks of a single turn.
+  //   4. `docs/plugins/hooks.md:406-409` closes the remaining question (does
+  //      a short-lived one-shot CLI process exit before agent_end runs?):
+  //      "short-lived one-shot CLI paths wait for the hook promise before
+  //      process cleanup" — the process that ran before_prompt_build is kept
+  //      alive through agent_end before it's allowed to exit.
+  // The E1 gotcha's "different pid per turn" observation is real but is an
+  // ACROSS-turn phenomenon (one-shot CLI invocations, or Gateway worker
+  // recycling, between turns) — it does not contradict same-process WITHIN
+  // a turn, which is what this Map relies on. A content-based defence
+  // (stripping `renderMemoryBlock()`'s shape from captured text without any
+  // cross-hook memory) was considered and rejected: it would trade this
+  // exact-match strip's zero false-positive rate for a heuristic one (a user
+  // legitimately pasting text shaped like a memory block would get silently
+  // eaten), for no correctness gain, since the gap it would close does not
+  // exist. Do not re-add a state file for this without new evidence that
+  // contradicts the citations above.
+  const MAX_TRACKED_RECALL_SESSIONS = 64;
+  const lastInjectedContext = new Map<string, string>();
+  function rememberInjectedContext(sessionKey: string, block: string): void {
+    lastInjectedContext.delete(sessionKey);
+    lastInjectedContext.set(sessionKey, block);
+    if (lastInjectedContext.size > MAX_TRACKED_RECALL_SESSIONS) {
+      const oldest = lastInjectedContext.keys().next();
+      if (!oldest.done) lastInjectedContext.delete(oldest.value);
+    }
+  }
+  function takeInjectedContext(sessionKey: string): string | undefined {
+    const block = lastInjectedContext.get(sessionKey);
+    lastInjectedContext.delete(sessionKey);
+    return block;
+  }
+
   async function recall(prompt: string | undefined, sessionKey: string | undefined): Promise<string | undefined> {
     const query = sanitizeQuery(prompt);
     if (!query) return undefined;
@@ -169,8 +339,38 @@ export function register(api: OpenClawPluginApi, openSession: SessionOpener = de
     messages: unknown[] | undefined,
     sessionKey: string | undefined,
   ): Promise<void> {
-    const turns = extractTurns(messages);
-    if (turns.length === 0) return;
+    // E1: slice the host's full cumulative snapshot down to just the
+    // messages appended since this session's last successful capture (see
+    // recall.ts's `newMessagesSince` doc for why the host gives no delta).
+    const state = sessionKey ? readCaptureState(stateDir) : {};
+    const previousCount = sessionKey ? state[sessionKey] : undefined;
+    const newRaw = newMessagesSince(messages, previousCount);
+    const rawTurns = extractTurns(newRaw);
+
+    // E2/E5: strip dMemo's own injected recall block and the host's
+    // timestamp envelope back off before this is ever stored.
+    const injected = sessionKey ? takeInjectedContext(sessionKey) : undefined;
+    const turns = sanitizeTurns(rawTurns, injected);
+
+    const totalCount = Array.isArray(messages) ? messages.length : undefined;
+    const persistProgress = () => {
+      // Only advance the persisted count once we've *seen* the full
+      // snapshot; skip if it wasn't the array we expect (defensive, matches
+      // extractTurns'/newMessagesSince's own Array.isArray guards).
+      if (sessionKey && totalCount !== undefined) {
+        updateCaptureState(stateDir, state, sessionKey, totalCount);
+      }
+    };
+
+    if (turns.length === 0) {
+      // Nothing capturable in the new slice (e.g. a tool-only exchange, or
+      // a user turn that was purely the recall block re-issued). Still
+      // advance progress — there is nothing to lose by not retrying a
+      // segment that already yielded nothing.
+      persistProgress();
+      return;
+    }
+
     const session = await getSession();
     // infer is hardcoded false — see config.ts's `infer` field doc.
     await session.memory.add(turns, {
@@ -178,6 +378,10 @@ export function register(api: OpenClawPluginApi, openSession: SessionOpener = de
       infer: false,
       metadata: { source: "capture" },
     });
+    // Persist progress only AFTER add() succeeds — if it throws, the catch
+    // in the agent_end handler below fails open and this same slice is
+    // retried next turn rather than silently dropped.
+    persistProgress();
     session.flush();
   }
 
@@ -195,6 +399,10 @@ export function register(api: OpenClawPluginApi, openSession: SessionOpener = de
         const e = event as { prompt?: string };
         const prependContext = await recall(e.prompt, ctx.sessionKey);
         if (!prependContext) return;
+        // E2: remember exactly what we're about to inject so capture() can
+        // strip it back off once the host bakes it into this session's next
+        // prompt text.
+        if (ctx.sessionKey) rememberInjectedContext(ctx.sessionKey, prependContext);
         return { prependContext };
       } catch (err) {
         api.logger.warn(`dmemo: before_prompt_build recall failed (fail-open): ${String(err)}`);

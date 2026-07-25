@@ -86,8 +86,14 @@ export interface FlushLogEntry {
  *    root already matched the on-chain value — undecryptable, structurally
  *    undecodable, or (decoded fine but) unreplayable content. Retrying
  *    cannot change this.
+ *  - `'orphaned'`: unreachable, AND this client holds a local record of an
+ *    upload it started in that block range and never confirmed. The Submit
+ *    transaction mines before segment data is durable, so an abandoned upload
+ *    leaves a paid-for pointer with nothing behind it — permanently. That is
+ *    our own wreckage, not a peer's intact blob, so walking back past it is
+ *    correct rather than destructive. Nothing was ever chained onto it.
  */
-export type BlobSkipReason = 'transient' | 'unretrievable' | 'corrupt';
+export type BlobSkipReason = 'transient' | 'unretrievable' | 'corrupt' | 'orphaned';
 
 export interface SkippedBlobInfo {
   rootHash: string;
@@ -253,7 +259,15 @@ export async function resolveRestoreChain(
       try {
         dl = await deps.downloadAndVerify(cursor);
       } catch (e) {
-        skipped.push({ rootHash: cursor, reason: classifyDownloadError(e), detail: (e as Error).message });
+        let reason = classifyDownloadError(e);
+        // Only the candidate's own head can be our abandoned upload: the
+        // marker says we submitted *one* pointer we never confirmed, and
+        // nothing was chained onto it, so its ancestors were written by
+        // confirmed uploads and an unreachable one there is a real outage.
+        if (reason !== 'corrupt' && candidate.orphanSuspect && cursor === candidate.rootHash) {
+          reason = 'orphaned';
+        }
+        skipped.push({ rootHash: cursor, reason, detail: (e as Error).message });
         ok = false;
         break;
       }
@@ -285,7 +299,7 @@ export async function resolveRestoreChain(
       // them was not confirmed corrupt, refuse rather than silently
       // degrading onto this older candidate — see
       // `RestoreTemporarilyUnavailableError`'s doc.
-      const anyNewerMaybeRecoverable = skipped.some((s) => s.reason !== 'corrupt');
+      const anyNewerMaybeRecoverable = skipped.some((s) => s.reason !== 'corrupt' && s.reason !== 'orphaned');
       if (anyNewerMaybeRecoverable) {
         throw new RestoreTemporarilyUnavailableError(candidates, skipped);
       }
@@ -603,6 +617,13 @@ export class DmemoSession {
       // recoverable blob unreachable forever).
       if (applyResult.appliedCount === chain.length) {
         storage.savePointer(pointer);
+        // We just deliberately walked back past our own abandoned upload and
+        // are about to chain onto an older head, so that wreckage is settled.
+        // Retiring the marker here keeps it from ever excusing a *future*
+        // unreachable pointer that we did not create.
+        if (restoreStats.skippedBlobs.some((s) => s.reason === 'orphaned')) {
+          storage.clearAbandonedUploadMarker();
+        }
       }
 
       restoreStats.replayMs = replayMs;

@@ -2,11 +2,16 @@ import { ethers } from 'ethers';
 import { Indexer, MemData, FixedPriceFlow__factory, tryDecrypt } from '@0gfoundation/0g-ts-sdk';
 import { BLOCK_RANGE_CAP, type NetworkConfig } from './network.js';
 import {
+  clearUploadMarker,
   defaultPointerCachePath,
+  getAbandonedUpload,
   getPointerCacheEntry,
+  markUploadAbandoned,
+  recordUploadStarted,
   savePointerCacheEntry,
   type PointerCacheEntry,
 } from './pointerCache.js';
+import { wrapIndexerQuiet } from './quietIndexer.js';
 
 export interface StorageClientOptions {
   network: NetworkConfig;
@@ -22,6 +27,16 @@ export interface StorageClientOptions {
    * classifiably-transient failure rather than an indefinite stall — the
    * download-side analog of gotcha 15's upload timeout). */
   downloadTimeoutMs?: number;
+  /** Test-only seam: inject a stand-in for the SDK's `Indexer` (e.g. a stub
+   * whose `upload`/`downloadToBlob` resolve without touching the network,
+   * for stdout-purity and other unit tests). Production callers must never
+   * set this — omitting it (the default) constructs the real `Indexer`
+   * exactly as before. */
+  indexer?: Indexer;
+  /** Test-only seam, same rationale as `indexer` — inject a stand-in for
+   * the `ethers.JsonRpcProvider` used for cost accounting and pointer
+   * resolution. Omitting it (the default) constructs the real provider. */
+  provider?: ethers.JsonRpcProvider;
 }
 
 export interface UploadResult {
@@ -37,6 +52,15 @@ export interface ResolvedPointer {
   txSeq: number;
   blockNumber: number;
   elapsedMs: number;
+  /**
+   * This pointer is newer than the last upload we confirmed, and this client
+   * has a local record of abandoning an upload in that same block range — so
+   * if it will not download, the overwhelmingly likely reason is that WE
+   * submitted it and never finished pushing its segments, not that a real
+   * blob is briefly unreachable. Restore uses this to walk back past its own
+   * wreckage instead of refusing forever (see `resolveRestoreChain`).
+   */
+  orphanSuspect?: boolean;
 }
 
 export class UploadTimeoutError extends Error {
@@ -104,6 +128,10 @@ export class BlobCorruptError extends Error {
 }
 
 const DEFAULT_UPLOAD_TIMEOUT_MS = 120_000;
+/** Added to the upload budget per KB of payload. Live testnet checkpoints of
+ * ~500 KB overran the flat 120 s ceiling; the segment push is roughly linear
+ * in size, so the budget has to be too. */
+const UPLOAD_TIMEOUT_MS_PER_KB = 600;
 const DEFAULT_DOWNLOAD_TIMEOUT_MS = 45_000;
 const DEFAULT_POINTER_CANDIDATES = 8;
 /** Attempts per blob before a download/verify failure is treated as (even
@@ -177,9 +205,14 @@ export class StorageClient {
 
   constructor(opts: StorageClientOptions) {
     this.network = opts.network;
-    this.provider = new ethers.JsonRpcProvider(opts.network.rpcUrl);
+    this.provider = opts.provider ?? new ethers.JsonRpcProvider(opts.network.rpcUrl);
     this.wallet = new ethers.Wallet(opts.privateKey, this.provider);
-    this.indexer = new Indexer(opts.network.indexerUrl);
+    // wrapIndexerQuiet: hand out the Indexer PRE-WRAPPED (structural fix —
+    // see quietIndexer.ts) so every method call reachable through
+    // `this.indexer`, present today or added later, is automatically routed
+    // through the quiet-stdout patch. No call site below (or added in the
+    // future) needs to remember to wrap itself.
+    this.indexer = wrapIndexerQuiet(opts.indexer ?? new Indexer(opts.network.indexerUrl));
     this.pointerCachePath = opts.pointerCachePath ?? defaultPointerCachePath();
     this.uploadTimeoutMs = opts.uploadTimeoutMs ?? DEFAULT_UPLOAD_TIMEOUT_MS;
     this.downloadTimeoutMs = opts.downloadTimeoutMs ?? DEFAULT_DOWNLOAD_TIMEOUT_MS;
@@ -212,17 +245,47 @@ export class StorageClient {
     // version, same `Wallet` class, at runtime there is exactly one). Deriving
     // the cast target from the call site itself (rather than naming
     // `ethers.Signer` directly) sidesteps the duplicate-identity problem.
+    // Mark the upload in flight BEFORE it can mine a Submit tx. From here on,
+    // any pointer this wallet gains above the last confirmed one may be our
+    // own — and if we never clear this marker, restore needs to know that.
+    // Written first precisely so a hard crash (not just a timeout) still
+    // leaves the evidence behind. See `AbandonedUploadEntry`.
+    const fromBlock = await this.provider.getBlockNumber().catch(() => 0);
+    recordUploadStarted(this.pointerCachePath, {
+      network: this.network.network,
+      wallet: this.wallet.address,
+      fromBlock,
+      startedAt: Date.now(),
+      bytes: plaintext.byteLength,
+    });
+
     const signerArg = this.wallet as unknown as Parameters<typeof this.indexer.upload>[2];
+    // No withQuietSdkStdout here: `this.indexer` is already pre-wrapped
+    // (see the constructor / quietIndexer.ts) — the SDK's own progress
+    // lines from inside upload() never reach real stdout, with no
+    // per-call-site wrapping to remember.
     const uploadPromise = this.indexer.upload(file, this.network.rpcUrl, signerArg, {
       encryption: { type: 'ecies', recipientPubKey },
     });
-    const [result, err] = await withTimeout(
-      uploadPromise,
-      this.uploadTimeoutMs,
-      () => new UploadTimeoutError(this.uploadTimeoutMs)
-    );
-    if (err) throw new Error(`0G upload error: ${err.message ?? String(err)}`);
-    if (!result || !('rootHash' in result)) throw new Error('0G upload returned no result');
+    // Scale the budget with payload size: a checkpoint is orders of magnitude
+    // larger than a delta, and a flat ceiling that comfortably fits a 3 KB
+    // delta will strand a 500 KB checkpoint mid-upload — which, per above,
+    // costs a real transaction fee and poisons the chain head.
+    const timeoutMs = this.uploadTimeoutMs + Math.ceil(plaintext.byteLength / 1024) * UPLOAD_TIMEOUT_MS_PER_KB;
+
+    // Every exit from here that is not a confirmed upload has to promote the
+    // in-flight marker to an abandonment — the timeout rejects out of the
+    // await, so the failure paths cannot be left to fall through.
+    let result: Awaited<typeof uploadPromise>[0];
+    try {
+      const [r, err] = await withTimeout(uploadPromise, timeoutMs, () => new UploadTimeoutError(timeoutMs));
+      if (err) throw new Error(`0G upload error: ${err.message ?? String(err)}`);
+      if (!r || !('rootHash' in r)) throw new Error('0G upload returned no result');
+      result = r;
+    } catch (e) {
+      markUploadAbandoned(this.pointerCachePath, this.network.network, this.wallet.address, (e as Error).message);
+      throw e;
+    }
     const uploadMs = performance.now() - t0;
 
     let costWei = 0n;
@@ -245,6 +308,9 @@ export class StorageClient {
       txSeq: result.txSeq,
       rootHash: result.rootHash,
     });
+    // Confirmed: this pointer is real and we are about to chain onto it, so
+    // nothing above the cached pointer is our wreckage any more.
+    clearUploadMarker(this.pointerCachePath, this.network.network, this.wallet.address);
 
     return { txHash: result.txHash, rootHash: result.rootHash, txSeq: result.txSeq, uploadMs, costWei };
   }
@@ -279,6 +345,12 @@ export class StorageClient {
     for (let attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt++) {
       try {
         const tDl = performance.now();
+        // No withQuietSdkStdout here either: downloadToBlob() is exactly
+        // the call site that emitted the live-observed noise ("Getting
+        // file locations for root hash...", "Found N locations for...",
+        // "Selected N of M nodes for...", indexer/Indexer.js:296/298/313),
+        // but `this.indexer` being pre-wrapped already keeps it off real
+        // stdout — see quietIndexer.ts.
         const [rawBlob, dlErr] = await withTimeout(
           this.indexer.downloadToBlob(rootHash, { proof: false }),
           this.downloadTimeoutMs,
@@ -397,6 +469,13 @@ export class StorageClient {
 
     logs.sort((a, b) => b.blockNumber - a.blockNumber || b.index - a.index); // newest first
     const elapsedMs = performance.now() - t0;
+    // A pointer is our own suspected wreckage only if we hold a local record
+    // of an upload we started and never confirmed, and the pointer sits at or
+    // after the block that upload began in. Both conditions are first-person
+    // facts about this client — a wallet with no abandonment marker gets the
+    // old, maximally conservative behaviour.
+    const abandoned = getAbandonedUpload(this.pointerCachePath, this.network.network, this.wallet.address);
+    const orphanFromBlock = abandoned ? abandoned.fromBlock : Number.POSITIVE_INFINITY;
     const candidates: ResolvedPointer[] = [];
     for (const log of logs.slice(0, maxCandidates)) {
       const decoded = this.flowIface.parseLog(log);
@@ -408,6 +487,7 @@ export class StorageClient {
         txSeq,
         blockNumber: log.blockNumber,
         elapsedMs,
+        orphanSuspect: log.blockNumber >= orphanFromBlock,
       });
     }
     if (candidates.length === 0) throw new Error('failed to decode any Submit log');
@@ -424,6 +504,11 @@ export class StorageClient {
       rootHash: p.rootHash,
     };
     savePointerCacheEntry(this.pointerCachePath, entry);
+  }
+
+  /** Retire the in-flight/abandoned upload marker (see `AbandonedUploadEntry`). */
+  clearAbandonedUploadMarker(): void {
+    clearUploadMarker(this.pointerCachePath, this.network.network, this.wallet.address);
   }
 
   /** Newest pointer only (back-compat convenience over resolveCandidates). */

@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 const SHUTDOWN_MODULE_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), 'shutdown.js');
 
 interface SpawnScenarioOptions {
-  scenario: 'quick' | 'hang' | 'slow' | 'no-signal';
+  scenario: 'quick' | 'hang' | 'slow' | 'no-signal' | 'double-install';
   timeoutMs: number;
   cwd: string;
 }
@@ -56,11 +56,19 @@ function dispose() {
   if (scenario === 'hang') {
     return new Promise(() => {}); // simulates a 0G upload that never returns
   }
-  if (scenario === 'slow') {
+  if (scenario === 'slow' || scenario === 'double-install') {
     return sleep(1500).then(() => fs.writeFileSync(sentinel, 'flushed'));
   }
   fs.writeFileSync(sentinel, 'flushed');
   return Promise.resolve();
+}
+
+if (scenario === 'double-install') {
+  // Reproduces OpenClaw's two-pass plugin load: a non-activating discovery
+  // pass installs first with a dispose() that has nothing to do, then the
+  // real activating pass installs again with the dispose() that actually
+  // flushes. Only the second install's flush matters.
+  installGracefulShutdown({ dispose: () => Promise.resolve(), timeoutMs: ${opts.timeoutMs} });
 }
 
 installGracefulShutdown({ dispose, timeoutMs: ${opts.timeoutMs} });
@@ -181,6 +189,30 @@ test('a second signal during shutdown force-quits immediately instead of startin
   assert.ok(!fs.existsSync(run.sentinel), 'the in-progress flush should have been abandoned, not completed');
   const disposeCalls = fs.existsSync(run.disposeCallsFile) ? fs.readFileSync(run.disposeCallsFile, 'utf8').trim().split('\n') : [];
   assert.equal(disposeCalls.length, 1, 'dispose() must not be re-entered by the second signal');
+});
+
+test('installing twice in one process does not let the first install kill the second flush', async () => {
+  // E6/E8 regression. OpenClaw's plugin loader calls register() at least
+  // twice per process (a non-activating discovery pass, then the real one)
+  // and rolls back only the registries it owns — a process.on(signal, ...)
+  // listener survives that rollback. With two independent listener sets both
+  // firing on one SIGTERM, the discovery instance's no-op dispose() settles
+  // first, removes only *its* listener, and re-delivers SIGTERM (shutdown.ts
+  // constraint 2) straight into the real instance, which reads it as the
+  // user's "I mean it" second signal and SIGKILLs mid-flush.
+  const dir = mkScratchDir();
+  const run = spawnScenario({ scenario: 'double-install', timeoutMs: 10_000, cwd: dir });
+  await run.waitReady();
+  run.child.kill('SIGTERM'); // ONE signal — the stacked listeners do the rest
+  const { code, signal } = await run.waitExit();
+
+  assert.ok(fs.existsSync(run.sentinel), 'the real install\'s flush must complete, not be SIGKILLed by the discovery install');
+  assert.equal(signal, 'SIGTERM', 'expected the graceful path, not a forced SIGKILL');
+  assert.notEqual(code, 134);
+  const disposeCalls = fs.existsSync(run.disposeCallsFile)
+    ? fs.readFileSync(run.disposeCallsFile, 'utf8').trim().split('\n')
+    : [];
+  assert.equal(disposeCalls.length, 1, 'only the surviving install\'s dispose() should run');
 });
 
 test('nothing buffered: a clean run with no signal still exits promptly with status 0', async () => {

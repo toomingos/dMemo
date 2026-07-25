@@ -59,7 +59,10 @@ export interface DmemoOpenClawConfig {
    * the "shipped defaults call OpenAI" bug this plugin exists to close.
    * Until core grows a real LLM slot wired to the 0G Router (T1.4 follow-up,
    * not in scope for T3.3), this plugin hardcodes `infer:false`
-   * unconditionally and only warns if a user sets `infer:true`. */
+   * unconditionally and only warns if a user sets `infer:true`. (O6: mem0
+   * has no dedup/idempotency of its own under `infer:false` either — see
+   * `index.ts`'s E1 state-file doc comment for the full citation trail —
+   * so this isn't leaving a native mechanism unused.) */
   infer: boolean;
   dream: {
     enabled: boolean;
