@@ -21,6 +21,8 @@ export function makeMockSession(
   }> = [];
   const searchCalls: Array<{ query: string; opts: unknown }> = [];
   let flushCalls = 0;
+  let waitForPendingFlushCalls = 0;
+  let closeCalls = 0;
 
   const session: DmemoSessionLike = {
     memory: {
@@ -39,8 +41,12 @@ export function makeMockSession(
     flush() {
       flushCalls++;
     },
-    async waitForPendingFlush() {},
-    async close() {},
+    async waitForPendingFlush() {
+      waitForPendingFlushCalls++;
+    },
+    async close() {
+      closeCalls++;
+    },
   };
 
   return {
@@ -49,6 +55,15 @@ export function makeMockSession(
     searchCalls,
     get flushCalls() {
       return flushCalls;
+    },
+    // F7: shutdown-wiring tests assert on these to confirm dispose() ran
+    // (or, for the "no session ever opened" case, that it deliberately
+    // didn't) — see index.test.ts.
+    get waitForPendingFlushCalls() {
+      return waitForPendingFlushCalls;
+    },
+    get closeCalls() {
+      return closeCalls;
     },
   };
 }

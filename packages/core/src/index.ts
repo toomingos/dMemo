@@ -49,6 +49,9 @@ export type { ForgetOptions, ForgetResult } from './forget.js';
 export { ensureBetterSqlite3Compat } from './runtime/bunSqliteCompat.js';
 export type { BunSqliteCompatResult } from './runtime/bunSqliteCompat.js';
 
+export { installGracefulShutdown, conventionalExitCode, DEFAULT_SHUTDOWN_TIMEOUT_MS } from './runtime/shutdown.js';
+export type { GracefulShutdownOptions, ShutdownReport, ShutdownSignal } from './runtime/shutdown.js';
+
 export { internals } from './mem0Internal.js';
 export type { MemoryInternals, HistoryBackedManager } from './mem0Internal.js';
 

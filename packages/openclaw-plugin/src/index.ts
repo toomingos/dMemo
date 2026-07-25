@@ -18,7 +18,7 @@
 //     `runDreamBatch`) — see `config.ts`'s `infer` field doc for why this is
 //     hardcoded rather than wired to the 0G Router today.
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
-import { DmemoSession } from "@dmemo/core";
+import { DmemoSession, installGracefulShutdown } from "@dmemo/core";
 import { parseConfig, type DmemoOpenClawConfig } from "./config.js";
 import {
   isNonInteractiveTrigger,
@@ -62,11 +62,38 @@ function toolResult(text: string) {
   return { content: [{ type: "text", text }] };
 }
 
+/** Parse `DMEMO_SHUTDOWN_TIMEOUT_MS`; anything unusable falls back to
+ * `installGracefulShutdown`'s own default (undefined) rather than throwing —
+ * config must never break the host. */
+function parseShutdownTimeoutMs(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw.trim() === "") return undefined;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 0) return undefined;
+  return n;
+}
+
+/** Returned by `register()` — see its doc comment. */
+export interface RegisterHandle {
+  /** Removes the SIGTERM/SIGINT/SIGHUP listeners this call installed (a
+   * no-op if memory was never enabled). The real host's `PluginEntry.register`
+   * is declared `void` and simply ignores this; it exists so tests (and any
+   * future embedder that reloads the plugin without a process restart) can
+   * remove the listeners `register()` installs on the real `process`. */
+  uninstall: () => void;
+  /** The exact flush/close path SIGTERM/SIGINT/SIGHUP run (fail-open; a
+   * no-op if no session was ever opened). This host has no dispose/teardown
+   * hook of its own (unlike the OpenCode plugin's `hooks.dispose`), so
+   * signal delivery is otherwise the only path to this — exposed so tests
+   * can exercise it directly instead of raising a real signal against the
+   * test process. */
+  dispose: () => Promise<void>;
+}
+
 /**
  * Register the dMemo memory plugin against an OpenClaw plugin API instance.
  * `openSession` is overridable for tests (structural mock, no network).
  */
-export function register(api: OpenClawPluginApi, openSession: SessionOpener = defaultOpener): void {
+export function register(api: OpenClawPluginApi, openSession: SessionOpener = defaultOpener): RegisterHandle {
   const cfg = parseConfig(api.pluginConfig as Record<string, unknown>);
   const stateDir = cfg.dream.stateDir ?? api.resolvePath(".dmemo/dream");
 
@@ -75,7 +102,7 @@ export function register(api: OpenClawPluginApi, openSession: SessionOpener = de
       "dmemo: no plugins.entries.dmemo.config.privateKey set — memory disabled (fail-open, no-op tools registered)",
     );
     registerFailOpenTools(api);
-    return;
+    return { uninstall: () => {}, dispose: async () => {} }; // nothing was installed
   }
 
   let sessionPromise: Promise<DmemoSessionLike> | null = null;
@@ -88,6 +115,41 @@ export function register(api: OpenClawPluginApi, openSession: SessionOpener = de
     }
     return sessionPromise;
   };
+
+  // F7: unlike the OpenCode plugin, this host's plugin-sdk shim has no
+  // dispose/shutdown hook at all (checked field-by-field against the real
+  // host source — see openclaw-plugin-sdk.d.ts's header), so SIGTERM/SIGINT
+  // otherwise fall straight through to the OS default (terminate) and any
+  // buffered-but-unflushed capture is lost. This is the only flush path this
+  // host gets. Deliberately reads `sessionPromise` directly rather than
+  // calling `getSession()` — a shutdown must never be what *opens* the
+  // first session (nothing to flush yet in that case).
+  let disposePromise: Promise<void> | undefined;
+  function disposeSession(): Promise<void> {
+    if (!disposePromise) {
+      disposePromise = (async () => {
+        if (!sessionPromise) return; // no session was ever opened — nothing to flush
+        try {
+          const session = await sessionPromise;
+          await session.waitForPendingFlush();
+          await session.close();
+        } catch {
+          // fail-open on teardown too, matching every other host's dispose contract
+        }
+      })();
+    }
+    return disposePromise;
+  }
+  const shutdownTimeoutMs = parseShutdownTimeoutMs(process.env.DMEMO_SHUTDOWN_TIMEOUT_MS);
+  const uninstallShutdown = installGracefulShutdown({
+    dispose: disposeSession,
+    ...(shutdownTimeoutMs !== undefined ? { timeoutMs: shutdownTimeoutMs } : {}),
+    onShutdown: (report) => {
+      api.logger.info(
+        `dmemo: ${report.signal} received — flush ${report.timedOut ? "timed out, forcing exit" : "completed"}`,
+      );
+    },
+  });
 
   const userIdFor = (sessionKey: string | undefined) => effectiveUserId(cfg.scope, sessionKey);
 
@@ -233,6 +295,8 @@ export function register(api: OpenClawPluginApi, openSession: SessionOpener = de
       { optional: true },
     );
   }
+
+  return { uninstall: uninstallShutdown, dispose: disposeSession };
 }
 
 /** Two-tool convention (`research/openclaw.md` §5) every OpenClaw memory
