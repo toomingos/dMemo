@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "references": [{ "path": "../core" }],
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "composite": true,
+    "declarationMap": true
+  },
+  "include": ["src/**/*.ts"]
+}

@@ -1,0 +1,49 @@
+{
+  "name": "@dmemo/openclaw-plugin",
+  "version": "0.1.0",
+  "description": "dMemo OpenClaw plugin (T3.3) — forks @mem0/openclaw-mem0's lifecycle/isolation/dream-gate shape, swaps OSS OpenAI defaults for @dmemo/core's local embedder + optional 0G Router LLM, replaces mem0's sqlite persistence with DmemoSession's 0G Storage flush/restore.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.js",
+    "!dist/**/*.test.js.map",
+    "!dist/**/*.test.d.ts",
+    "!dist/**/*.test.d.ts.map",
+    "openclaw.plugin.json",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test $(find dist -name '*.test.js')",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@dmemo/core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "@types/node": "^20.14.0",
+    "ethers": "^6.17.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dmemo-ai/dmemo.git",
+    "directory": "packages/openclaw-plugin"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": ["dmemo", "0g", "openclaw", "openclaw-plugin", "memory", "mem0"]
+}

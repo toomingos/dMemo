@@ -1,0 +1,68 @@
+{
+  "id": "dmemo",
+  "name": "Memory (dMemo)",
+  "description": "Private, encrypted, portable long-term memory backed by 0G Storage. No cloud API key required for embedding or recall; capture never calls an LLM (infer=false always). Optional 0G Router chat inference is separate and never required for the memory leg.",
+  "version": "0.1.0",
+  "kind": "memory",
+  "contracts": {
+    "tools": ["memory_search", "memory_get", "memory_dream"]
+  },
+  "setup": {
+    "providers": [
+      {
+        "id": "dmemo",
+        "envVars": ["DMEMO_PRIVATE_KEY"]
+      }
+    ]
+  },
+  "config": {
+    "privateKey": {
+      "type": "string",
+      "description": "0G wallet private key (0x-prefixed hex). Required. No config => memory disabled (fail-open)."
+    },
+    "scope": {
+      "type": "string",
+      "default": "default",
+      "description": "Base mem0 user_id / isolation namespace. Per-agent sessions are auto-namespaced as `<scope>:agent:<agentId>`."
+    },
+    "network": {
+      "type": "string",
+      "enum": ["testnet", "mainnet"],
+      "default": "testnet"
+    },
+    "recall": {
+      "strategy": { "type": "string", "enum": ["always", "smart", "manual"], "default": "smart" },
+      "topK": { "type": "number", "default": 5 },
+      "timeoutMs": { "type": "number", "default": 10000 }
+    },
+    "dream": {
+      "enabled": { "type": "boolean", "default": true },
+      "minHours": { "type": "number", "default": 24 },
+      "minSessions": { "type": "number", "default": 5 },
+      "minMemories": { "type": "number", "default": 20 }
+    }
+  },
+  "install": {
+    "npmSpec": "@dmemo/openclaw-plugin"
+  },
+  "modelInferenceDocTemplate": {
+    "_comment": "Optional, separate from the memory leg. 0G Router is OpenAI-chat-completions-shaped, not /v1/responses-shaped, hence api: 'openai-completions'.",
+    "models": {
+      "providers": {
+        "zg": {
+          "baseUrl": "https://router-api-testnet.integratenetwork.work/v1",
+          "api": "openai-completions",
+          "apiKey": "${ZEROG_API_KEY}"
+        }
+      }
+    },
+    "agents": {
+      "defaults": {
+        "model": {
+          "primary": "zg/qwen2.5-omni"
+        }
+      }
+    },
+    "_modelNote": "Testnet chat model catalog drifted as of 2026-07-25 (Phase 2 finding): the spec-era 'qwen/qwen2.5-omni-7b (TeeML)' id no longer exists. Current testnet chat model is 'qwen2.5-omni' (TeeTLS, not TeeML). Re-check `GET /v1/models` on the Router before pinning in production; mainnet baseUrl is `https://router-api.0g.ai/v1`."
+  }
+}
