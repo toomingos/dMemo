@@ -137,6 +137,10 @@ const openOpts = {
   networkOverrides: { rpcUrl: env.RPC, indexerUrl: env.INDEXER },
   embedder: { provider: 'fastembed', model: 'fast-bge-small-en-v1.5' }, // pinned, deterministic (D6)
   pointerCachePath: POINTER_CACHE_PATH,
+  // T5.2 live finding (gotcha 20): the benchmark's late checkpoints reach
+  // ~17MB (67 segments) and the SDK upload waits for finality across the
+  // sharded covering set — the 120s default is too tight for those.
+  uploadTimeoutMs: 300_000,
 };
 
 // ---------------------------------------------------------------------------
@@ -200,7 +204,66 @@ const totalBefore = Object.values(memCountsBefore).reduce((a, b) => a + b, 0);
 console.log(`total memories ingested: ${totalBefore}`);
 
 // ---------------------------------------------------------------------------
-// 3. Wipe: close (final flush, wipes temp sqlite file) + drop pointer cache.
+// 3. DURABILITY GATE (gotcha 20) — never wipe local state until the restore
+//    chain is provably retrievable. A Submit log (and hence a flushLog entry)
+//    exists once the upload *transaction* is mined, but segment data is only
+//    retrievable once the sharded covering set is complete — the T5.2 run
+//    that motivated this gate wiped local state while the final 17.5MB
+//    checkpoint was missing one segment on the shard-0 node, permanently
+//    stranding the tail of the run.
+// ---------------------------------------------------------------------------
+section('DURABILITY GATE: verify the restore chain is retrievable before wiping');
+
+if (state.session.droppedFlushCount > 0) {
+  throw new Error(
+    `${state.session.droppedFlushCount} flush batch(es) were dropped fail-open — ` +
+      `local memories exist that were never persisted; refusing to wipe local state`
+  );
+}
+
+// Restore needs the newest blob plus its prev-chain back to the last
+// checkpoint. Every root in that suffix must have a complete covering set.
+const lastCkIdx = pass1FlushLog.map((f) => f.kind).lastIndexOf('checkpoint');
+const chainSuffixRoots = pass1FlushLog.slice(lastCkIdx === -1 ? 0 : lastCkIdx).map((f) => f.rootHash);
+console.log(`restore chain suffix to verify (${chainSuffixRoots.length} blob(s)): ${chainSuffixRoots.join(', ')}`);
+
+async function indexerLocationCount(rootHash) {
+  const res = await fetch(env.INDEXER, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'indexer_getFileLocations', params: [rootHash] }),
+  });
+  const json = await res.json();
+  return Array.isArray(json.result) ? json.result.length : 0;
+}
+
+{
+  const deadline = Date.now() + 10 * 60_000;
+  const pending = new Set(chainSuffixRoots);
+  while (pending.size > 0) {
+    for (const root of [...pending]) {
+      const n = await indexerLocationCount(root);
+      if (n > 0) {
+        console.log(`  durable: ${root} (${n} location set(s))`);
+        pending.delete(root);
+      }
+    }
+    if (pending.size === 0) break;
+    if (Date.now() > deadline) {
+      throw new Error(
+        `durability gate FAILED: ${pending.size} blob(s) still have no complete covering set on the ` +
+          `indexer after 10min (${[...pending].join(', ')}) — LOCAL STATE LEFT INTACT, nothing wiped. ` +
+          `Do not re-ingest; investigate per-node segment status first (TASKS.md gotcha 20).`
+      );
+    }
+    console.log(`  waiting for covering set: ${pending.size} blob(s) still pending...`);
+    await new Promise((r) => setTimeout(r, 15_000));
+  }
+  console.log('durability gate PASSED: every blob in the restore chain suffix is retrievable');
+}
+
+// ---------------------------------------------------------------------------
+// 3b. Wipe: close (final flush, wipes temp sqlite file) + drop pointer cache.
 // ---------------------------------------------------------------------------
 section('WIPE: close session, delete pointer cache, drop in-process references');
 
