@@ -165,6 +165,19 @@ Hermes/Python = v1.1. Network: testnet Galileo first (D14), one-env-var mainnet 
     search/get/list/update/BM25 keywordSearch/delete/setUserId/payload-normalization is
     byte-identical between Node and Bun 1.2.18 & 1.3.14 (cosine scores included). Verified on
     macOS arm64 only.
+23. *(F2)* **In `packages/setup-cli/src/cli.ts`, `--help`/`--version` must be checked BEFORE any
+    command is dispatched, and unknown flags/commands must hard-error — never fall through to a
+    default command.** The original hand-rolled arg loop only assigned `command` when the first
+    token didn't start with `-`, so `dmemo --help` silently ran the full (wallet-touching) setup
+    wizard instead of printing help, and an unrecognized/misspelled flag (e.g. `--newwallet`) was
+    matched against nothing and dropped rather than rejected — before gotcha 21's fix landed, that
+    combination could run a destructive path the user never asked for. Fixed by replacing the loop
+    with `node:util`'s `parseArgs({ strict: true, allowPositionals: true })`: unknown options throw
+    `ERR_PARSE_ARGS_UNKNOWN_OPTION` and a missing/ambiguous value throws
+    `ERR_PARSE_ARGS_INVALID_OPTION_VALUE` for free, so a typo can no longer silently select a
+    different operation. `--help`/`-h` and `--version`/`-v` are resolved first, from any argv
+    position, before the command positional is even validated. Any new flag or subcommand must go
+    through this same table (`packages/setup-cli/src/cliArgs.ts`), not a second hand-rolled parser.
 
 ---
 

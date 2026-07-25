@@ -46,7 +46,16 @@ npx dmemo setup --network mainnet
 npx dmemo setup --skip-hosts     # wallet + config only, skip host wiring
 npx dmemo setup --check-balance  # also poll the balance once after printing the faucet link
 npx dmemo balance                # check the configured wallet's balance any time
+npx dmemo --help                 # or -h, or `npx dmemo help` — from any position, always safe
+npx dmemo --version              # or -v
 ```
+
+`--help`/`-h` and `--version`/`-v` win outright no matter where they appear on
+the command line (e.g. `npx dmemo setup --help` prints help, it does not run
+the wizard) and never touch a wallet. An unknown command or an unrecognized
+flag (including a typo of a real one, like `--newwallet`) is a hard error —
+a message naming the offending token on stderr and a non-zero exit — never a
+silent no-op that quietly runs a different command than the one you typed.
 
 ## Replacing a wallet
 

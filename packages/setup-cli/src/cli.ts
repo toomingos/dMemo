@@ -3,94 +3,30 @@ import { runSetup } from './setup.js';
 import { runConnect } from './connect.js';
 import { checkBalance } from './network.js';
 import { readDmemoConfig } from './dmemoConfig.js';
-
-function parseArgs(argv: string[]) {
-  const args = {
-    command: 'setup',
-    yes: false,
-    network: undefined as 'testnet' | 'mainnet' | undefined,
-    importKey: undefined as string | undefined,
-    skipHosts: false,
-    checkBalance: false,
-    scope: undefined as string | undefined,
-    fundAmount: undefined as string | undefined,
-    noOpen: false,
-    port: undefined as number | undefined,
-    newWallet: false,
-    force: false,
-  };
-  const rest = [...argv];
-  const first = rest[0];
-  if (first && !first.startsWith('-')) {
-    args.command = first;
-    rest.shift();
-  }
-  for (let i = 0; i < rest.length; i++) {
-    const arg = rest[i];
-    if (arg === '--yes' || arg === '-y') args.yes = true;
-    else if (arg === '--network') args.network = rest[++i] as 'testnet' | 'mainnet';
-    else if (arg === '--import-key') args.importKey = rest[++i];
-    else if (arg === '--skip-hosts') args.skipHosts = true;
-    else if (arg === '--check-balance') args.checkBalance = true;
-    else if (arg === '--scope') args.scope = rest[++i];
-    else if (arg === '--fund-amount') args.fundAmount = rest[++i];
-    else if (arg === '--no-open') args.noOpen = true;
-    else if (arg === '--port') args.port = Number(rest[++i]);
-    else if (arg === '--new-wallet') args.newWallet = true;
-    else if (arg === '--force' || arg === '-f') args.force = true;
-  }
-  return args;
-}
-
-function printHelp(): void {
-  console.log(
-    [
-      'dmemo — onboarding CLI for dMemo (private, encrypted, portable memory on 0G Storage)',
-      '',
-      'Usage:',
-      '  npx dmemo connect [options]    Connect a browser wallet; derive your memory key from a signature',
-      '  npx dmemo setup [options]      Generate/import a wallet, write config, wire up hosts',
-      '  npx dmemo balance              Check the funding balance of the configured wallet',
-      '  npx dmemo help                 Show this message',
-      '',
-      'Options for `connect`:',
-      '  --network <name>     testnet (default) | mainnet',
-      '  --scope <name>       Memory namespace (default: "default"). Part of the signed',
-      '                       message, so a different scope on the same wallet yields a',
-      '                       separate, isolated dMemo account.',
-      '  --fund-amount <n>    Amount (in 0G) the page offers to send (default: 0.05)',
-      '  --no-open            Print the URL instead of launching a browser',
-      '  --port <n>           Bind a fixed loopback port instead of an ephemeral one',
-      '  --skip-hosts         Skip host detection/install (wallet + config only)',
-      '  --force, -f          Replace a locally-generated wallet without confirming',
-      '',
-      'Options for `setup`:',
-      '  --yes, -y            Non-interactive: generate a wallet, skip prompts',
-      '  --network <name>     testnet (default) | mainnet',
-      '  --import-key <hex>   Import an existing private key instead of generating one',
-      '  --new-wallet         Mint a new wallet even though one is configured (asks first)',
-      '  --force, -f          Grant permission to replace the configured wallet',
-      '  --skip-hosts         Skip host detection/install (wallet + config only)',
-      '  --check-balance      Poll the wallet balance once after printing the faucet link',
-      '',
-      'About your wallet:',
-      '  ~/.dmemo/config.json holds the ONLY key that can decrypt your memories on',
-      '  0G Storage. Re-running `setup` keeps the wallet already on record; replacing',
-      '  it takes an explicit flag plus confirmation, and always writes a timestamped',
-      '  0600 backup of the old config next to it.',
-      '',
-      'Env overrides (mainly for sandboxed testing — never used against a real install):',
-      '  DMEMO_HOME   overrides ~/.dmemo',
-      '  CODEX_HOME   overrides ~/.codex (Codex hook install target)',
-      '  HOME         overrides the home directory used for all host detection/config paths',
-    ].join('\n')
-  );
-}
+import { parseArgs, printHelp, readPackageVersion, CliUsageError } from './cliArgs.js';
 
 async function main(): Promise<number> {
-  const args = parseArgs(process.argv.slice(2));
+  let args;
+  try {
+    args = parseArgs(process.argv.slice(2));
+  } catch (err) {
+    if (err instanceof CliUsageError) {
+      console.error(err.message);
+      console.error('Run `dmemo --help` for usage.');
+      return 1;
+    }
+    throw err;
+  }
 
-  if (args.command === 'help' || args.command === '--help' || args.command === '-h') {
+  // `--version`/`-v` and `--help`/`-h` (or the `help` command) take priority
+  // over everything else, from any position — see cliArgs.ts. Neither one
+  // ever reaches the command dispatch below.
+  if (args.version) {
+    console.log(readPackageVersion());
+    return 0;
+  }
+
+  if (args.help || args.command === 'help') {
     printHelp();
     return 0;
   }
@@ -134,9 +70,11 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  console.error(`Unknown command: ${args.command}`);
-  printHelp();
-  return 1;
+  // Unreachable: `parseArgs` only ever returns a `command` from `COMMANDS`,
+  // and every member is handled above. Kept as a defensive net so a future
+  // command added to one list but not the other fails loudly instead of
+  // silently falling through to a wizard — which is the exact shape of F2.
+  throw new Error(`internal: unhandled command '${args.command}'`);
 }
 
 main()
