@@ -1,0 +1,29 @@
+{
+  "name": "@dmemo/node-adapter",
+  "version": "0.1.0",
+  "description": "dMemo T3.1 — merged Node host adapter for Claude Code + Codex: hook scripts (SessionStart/UserPromptSubmit/Stop/PreCompact), esbuild-bundled to dependency-free .cjs, plus the Codex hooks.json installer.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -b && node scripts/build.cjs",
+    "test": "node --test $(find dist -name '*.test.js' 2>/dev/null) 2>/dev/null || true",
+    "clean": "rm -rf dist ../../claude-dmemo/plugin/scripts"
+  },
+  "dependencies": {
+    "@dmemo/core": "workspace:*"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.3",
+    "@types/node": "^20.14.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dmemo-ai/dmemo.git",
+    "directory": "packages/node-adapter"
+  }
+}
