@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { runSetup } from './setup.js';
 import { runConnect } from './connect.js';
+import { runFund } from './fund.js';
 import { checkBalance } from './network.js';
 import { readDmemoConfig } from './dmemoConfig.js';
 import { parseArgs, printHelp, readPackageVersion, CliUsageError } from './cliArgs.js';
@@ -38,7 +39,7 @@ async function main(): Promise<number> {
       console.log('No wallet address on record. Run `npx dmemo setup` first.');
       return 1;
     }
-    const network = (config?.DMEMO_NETWORK as 'testnet' | 'mainnet') ?? 'testnet';
+    const network = (config?.DMEMO_NETWORK as 'testnet' | 'mainnet') ?? 'mainnet';
     const result = await checkBalance(address, network);
     console.log(`${address} on ${network}: ${result.balanceFormatted} 0G${result.funded ? '' : ' (not funded)'}`);
     return 0;
@@ -57,6 +58,17 @@ async function main(): Promise<number> {
     return 0;
   }
 
+  if (args.command === 'fund') {
+    await runFund({
+      network: args.network,
+      usd: args.usd,
+      fundAmount: args.fundAmount,
+      noOpen: args.noOpen,
+      port: args.port,
+    });
+    return 0;
+  }
+
   if (args.command === 'setup') {
     await runSetup({
       yes: args.yes,
@@ -65,6 +77,8 @@ async function main(): Promise<number> {
       newWallet: args.newWallet,
       force: args.force,
       skipHosts: args.skipHosts,
+      skipFunding: args.skipFunding,
+      noOpen: args.noOpen,
       checkBalanceOnce: args.checkBalance || undefined,
     });
     return 0;

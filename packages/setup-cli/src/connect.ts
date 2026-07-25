@@ -81,7 +81,10 @@ const DEFAULT_FUND_AMOUNT_ETHER = '0.05';
 export async function runConnect(opts: ConnectOptions = {}): Promise<ConnectResult> {
   const env = opts.env ?? process.env;
   const log = opts.log ?? ((line: string) => console.log(line));
-  const network: NetworkName = opts.network ?? (env.DMEMO_NETWORK as NetworkName) ?? 'testnet';
+  // Mainnet by default — see the note in setup.ts. An existing config's
+  // network is NOT consulted here on purpose: connect derives a fresh
+  // account, so there is no prior install to avoid demoting.
+  const network: NetworkName = opts.network ?? (env.DMEMO_NETWORK as NetworkName) ?? 'mainnet';
   const scope = opts.scope ?? env.DMEMO_SCOPE ?? 'default';
   const fundAmount = opts.fundAmount ?? DEFAULT_FUND_AMOUNT_ETHER;
   const rpcUrl = rpcUrlFor(network);

@@ -16,6 +16,8 @@ const DEFAULTS = {
   checkBalance: false,
   scope: undefined,
   fundAmount: undefined,
+  usd: undefined,
+  skipFunding: false,
   noOpen: false,
   port: undefined,
   newWallet: false,
@@ -24,6 +26,45 @@ const DEFAULTS = {
 
 test('no args at all: defaults to the setup command (unchanged default behavior)', () => {
   assert.deepEqual(parseArgs([]), { ...DEFAULTS, command: 'setup' });
+});
+
+// --- network selection ----------------------------------------------------
+// `--network` used to be cast, not validated, and every consumer branches on
+// `network === 'mainnet'`. So a typo did not error, it silently ran testnet.
+// Now that mainnet is the default, that bug would quietly move a user's
+// memories onto a throwaway chain.
+
+test('--testnet selects testnet on every command that takes a network', () => {
+  for (const command of ['setup', 'connect', 'fund']) {
+    assert.equal(parseArgs([command, '--testnet']).network, 'testnet', command);
+  }
+});
+
+test('--testnet and --network testnet are equivalent', () => {
+  assert.deepEqual(parseArgs(['setup', '--testnet']), parseArgs(['setup', '--network', 'testnet']));
+});
+
+test('omitting a network flag leaves it unset rather than guessing', () => {
+  // undefined, NOT 'mainnet': each command still has to consult the config
+  // first so a re-run never silently promotes an existing testnet install.
+  assert.equal(parseArgs(['setup']).network, undefined);
+});
+
+test('a misspelled network is a hard error, not a silent demotion to testnet', () => {
+  for (const bad of ['mainet', 'MAINNET', 'main', 'banana', '']) {
+    assert.throws(
+      () => parseArgs(['setup', '--network', bad]),
+      CliUsageError,
+      `--network ${JSON.stringify(bad)} must be rejected`
+    );
+  }
+});
+
+test('--testnet contradicting --network mainnet is refused rather than resolved', () => {
+  assert.throws(() => parseArgs(['setup', '--testnet', '--network', 'mainnet']), CliUsageError);
+  assert.throws(() => parseArgs(['setup', '--network', 'mainnet', '--testnet']), CliUsageError);
+  // Agreeing with itself is fine.
+  assert.equal(parseArgs(['setup', '--testnet', '--network', 'testnet']).network, 'testnet');
 });
 
 test('--help in first position prints help, never runs setup', () => {

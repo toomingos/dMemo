@@ -1,6 +1,13 @@
-// T4.1 orchestrator — `dmemo setup`. Steps run in the exact order the task
-// spec lists: wallet -> faucet/funding -> ~/.dmemo/config.json -> per-host
-// install -> optional inference leg (instructions only, never scripted).
+// T4.1 orchestrator — `dmemo setup`. Steps: wallet -> ~/.dmemo/config.json
+// -> funding -> per-host install -> optional inference leg (instructions
+// only, never scripted).
+//
+// Funding used to sit before the config write, back when it was just a
+// printed faucet link. It now opens a browser and can take minutes (a card
+// purchase clears KYC first), so the config has to be on disk before it
+// starts: a user who abandons the funding step must still end up with their
+// wallet persisted and `dmemo fund` re-runnable against it. Losing a
+// generated key to a closed browser tab would be unrecoverable.
 //
 // The memory leg (steps 1-4) completes with ZERO interactive web steps.
 // Step 5 (inference) is documented, not automated (accepted gap, D-cited in
@@ -15,7 +22,16 @@
 // leaves a timestamped backup behind.
 
 import { generateWallet, importWallet, type WalletResult } from './wallet.js';
-import { faucetInstructions, checkBalance, MAINNET_CHAIN_ID } from './network.js';
+import {
+  faucetInstructions,
+  checkBalance,
+  chainNameFor,
+  chainIdFor,
+  CURRENCY_SYMBOL,
+  COST_PER_WRITE_0G_LOW,
+  COST_PER_WRITE_0G_HIGH,
+} from './network.js';
+import { runFund } from './fund.js';
 import {
   writeDmemoConfig,
   inspectExistingKey,
@@ -42,6 +58,11 @@ export interface SetupOptions {
    * The old config is backed up regardless. */
   force?: boolean;
   skipHosts?: boolean;
+  /** Never open the funding flow; print how to fund and move on. */
+  skipFunding?: boolean;
+  /** Passed through to the funding step: print the URL, don't spawn a
+   * browser (headless/CI/remote shells). */
+  noOpen?: boolean;
   checkBalanceOnce?: boolean;
   log?: (line: string) => void;
 }
@@ -89,10 +110,15 @@ export async function runSetup(opts: SetupOptions = {}): Promise<SetupResult> {
   const existing = inspectExistingKey(env);
   const wantsNewKey = Boolean(opts.importKey || opts.newWallet);
 
-  // An existing config's network wins over the built-in default, so a plain
-  // re-run of a mainnet install doesn't quietly demote it to testnet.
+  // Mainnet is the default: it is the only network the funding rails reach
+  // (card, cross-chain), and the only one whose memories are durable. The
+  // testnet faucet is still one flag away for anyone evaluating.
+  //
+  // An existing config's network still wins over that default, so a plain
+  // re-run of a testnet install is not silently promoted to mainnet (nor a
+  // mainnet one demoted).
   const network: NetworkName =
-    opts.network ?? (env.DMEMO_NETWORK as NetworkName) ?? (existing?.network as NetworkName) ?? 'testnet';
+    opts.network ?? (env.DMEMO_NETWORK as NetworkName) ?? (existing?.network as NetworkName) ?? 'mainnet';
 
   let wallet: WalletResult | null = null;
 
@@ -118,21 +144,7 @@ export async function runSetup(opts: SetupOptions = {}): Promise<SetupResult> {
 
   const address = wallet?.address ?? existing?.address ?? '';
 
-  // --- Step 2: faucet / funding -----------------------------------------
-  if (network === 'testnet') {
-    log(faucetInstructions(address));
-    log('');
-    const shouldCheck = opts.checkBalanceOnce ?? (!nonInteractive && (await promptYesNo('Check balance now?', false)));
-    if (shouldCheck) {
-      await pollBalanceOnce(address, network, log);
-    } else {
-      log('Skipping balance check. Re-run `dmemo setup --check-balance` any time.\n');
-    }
-  } else {
-    log(`Network: mainnet (chain ${MAINNET_CHAIN_ID}) — fund ${address} yourself; no faucet on mainnet.\n`);
-  }
-
-  // --- Step 3: ~/.dmemo/config.json --------------------------------------
+  // --- Step 2: ~/.dmemo/config.json --------------------------------------
   // When reusing, DMEMO_PRIVATE_KEY is deliberately absent from the updates:
   // the merge preserves it, and the write cannot possibly disturb it.
   const { path: configPath, backupPath } = writeDmemoConfig(
@@ -156,6 +168,9 @@ export async function runSetup(opts: SetupOptions = {}): Promise<SetupResult> {
     log('');
   }
 
+  // --- Step 3: funding -----------------------------------------------------
+  await fundingStep(address, network, { ...opts, nonInteractive, log });
+
   // --- Step 4: per-host install -------------------------------------------
   let hosts: SetupResult['hosts'] = {};
   if (!opts.skipHosts) {
@@ -167,6 +182,92 @@ export async function runSetup(opts: SetupOptions = {}): Promise<SetupResult> {
   log(INFERENCE_INSTRUCTIONS);
 
   return { address, network, configPath, hosts, walletReused: wallet === null, backupPath };
+}
+
+/**
+ * Step 3. Every branch here is about not stranding the user: an empty
+ * account cannot write a single memory, so "you are set up" is a lie until
+ * this is resolved one way or another.
+ *
+ * Unattended runs never open a browser and never block — they print the
+ * command and move on. Only an interactive run offers the flow, and even
+ * then it is a question, not a redirect.
+ */
+async function fundingStep(
+  address: string,
+  network: NetworkName,
+  ctx: SetupOptions & { nonInteractive: boolean; log: (line: string) => void }
+): Promise<void> {
+  const { log, nonInteractive } = ctx;
+
+  log(`Funding — memory writes cost ~${COST_PER_WRITE_0G_LOW}–${COST_PER_WRITE_0G_HIGH} ${CURRENCY_SYMBOL} each`);
+  log(`on ${chainNameFor(network)} (chain ${chainIdFor(network)}), so this account needs a`);
+  log('small balance to be useful.\n');
+
+  if (ctx.skipFunding) {
+    log(`Skipped (--skip-funding). Run \`npx dmemo fund\` when you are ready.\n`);
+    if (network === 'testnet') {
+      log(faucetInstructions(address));
+      log('');
+    }
+    return;
+  }
+
+  // Cheap pre-check so an already-funded re-run says nothing at all rather
+  // than offering to solve a problem the user does not have.
+  let funded = false;
+  try {
+    const balance = await checkBalance(address, network);
+    funded = balance.balanceWei > 0n;
+    if (funded) {
+      log(`Balance: ${balance.balanceFormatted} ${CURRENCY_SYMBOL} — already funded.\n`);
+      return;
+    }
+    // `--check-balance` predates this step, when funding was a printed faucet
+    // link and the poll was opt-in. The poll is now unconditional, so the
+    // flag's remaining job is to state the result out loud.
+    if (ctx.checkBalanceOnce) {
+      log(`Balance: ${balance.balanceFormatted} ${CURRENCY_SYMBOL} — not funded yet.\n`);
+    }
+  } catch (err) {
+    log(`Balance check failed (non-fatal): ${err instanceof Error ? err.message : String(err)}\n`);
+  }
+
+  if (nonInteractive) {
+    // No browser, no prompt, no blocking. `--yes` means "do not ask me
+    // things", and opening a payment page unattended would be the single
+    // most surprising thing this CLI could do.
+    log(`Not funded. Run \`npx dmemo fund\` to add ${CURRENCY_SYMBOL}`);
+    log(network === 'mainnet'
+      ? '  (card, Apple Pay, crypto from another chain, or your own wallet).\n'
+      : '  (testnet faucet).\n');
+    if (network === 'testnet') {
+      log(faucetInstructions(address));
+      log('');
+    }
+    return;
+  }
+
+  const wantsFunding = await promptYesNo('Fund it now?', true);
+  log('');
+  if (!wantsFunding) {
+    log('Skipped. Run `npx dmemo fund` any time; `npx dmemo balance` checks it.\n');
+    if (network === 'testnet') {
+      log(faucetInstructions(address));
+      log('');
+    }
+    return;
+  }
+
+  try {
+    await runFund({ env: ctx.env, address, network, noOpen: ctx.noOpen, log });
+  } catch (err) {
+    // Funding is the one step that talks to a browser, a public RPC, and a
+    // payment provider — the three least reliable things in this flow. It
+    // must never take the rest of setup down with it.
+    log(`Funding did not complete: ${err instanceof Error ? err.message : String(err)}`);
+    log('Run `npx dmemo fund` to pick it back up — nothing else is affected.\n');
+  }
 }
 
 /** Generate or import, per flags and (when interactive) a prompt. Does not
@@ -221,21 +322,4 @@ async function confirmReplacement(
   const ok = await promptYesNo('Replace it?', false);
   if (!ok) throw new Error('Aborted — the configured wallet is untouched.');
   log('');
-}
-
-async function pollBalanceOnce(
-  address: string,
-  network: NetworkName,
-  log: (line: string) => void
-): Promise<void> {
-  try {
-    const result = await checkBalance(address, network);
-    if (result.funded) {
-      log(`Balance: ${result.balanceFormatted} 0G — funded.\n`);
-    } else {
-      log('Balance: 0 0G — not funded yet. Claim from the faucet above, then re-run `dmemo setup --check-balance`.\n');
-    }
-  } catch (err) {
-    log(`Balance check failed (non-fatal): ${err instanceof Error ? err.message : String(err)}\n`);
-  }
 }

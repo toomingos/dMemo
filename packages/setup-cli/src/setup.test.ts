@@ -1,7 +1,9 @@
 // F3 regression suite: `dmemo setup` must never cost a user their wallet.
 //
-// Every case runs against a throwaway DMEMO_HOME with `skipHosts` on and the
-// balance check off, so nothing here touches a real dotfile or the network.
+// Every case runs against a throwaway DMEMO_HOME with `skipHosts` on and
+// funding skipped, so nothing here touches a real dotfile or the network.
+// `skipFunding` matters: without it the funding step reads the account
+// balance over RPC, which would make this suite hit the public 0G endpoint.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -27,7 +29,15 @@ function backupsIn(env: NodeJS.ProcessEnv): string[] {
 function opts(env: NodeJS.ProcessEnv, extra: Parameters<typeof runSetup>[0] = {}) {
   const lines: string[] = [];
   return {
-    args: { env, yes: true, skipHosts: true, checkBalanceOnce: false, log: (l: string) => lines.push(l), ...extra },
+    args: {
+      env,
+      yes: true,
+      skipHosts: true,
+      skipFunding: true,
+      checkBalanceOnce: false,
+      log: (l: string) => lines.push(l),
+      ...extra,
+    },
     lines,
   };
 }

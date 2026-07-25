@@ -18,6 +18,8 @@
 // No external requests of any kind: no CDN, no fonts, no analytics. Wallet
 // icons come from the wallets themselves as data: URIs via EIP-6963.
 
+import { escapeHtml, embedJson as embed } from '../loopback.js';
+
 export interface ConnectPageOptions {
   token: string;
   scope: string;
@@ -29,12 +31,6 @@ export interface ConnectPageOptions {
   fundAmountLabel: string;
   fundAmountWeiHex: string;
   faucetUrl?: string;
-}
-
-/** JSON-embed a value into a <script> without letting a `</script>` in the
- * data terminate the block early. */
-function embed(value: unknown): string {
-  return JSON.stringify(value).replace(/</g, '\\u003c');
 }
 
 export function renderConnectPage(opts: ConnectPageOptions): string {
@@ -465,21 +461,4 @@ export function renderConnectPage(opts: ConnectPageOptions): string {
 </body>
 </html>
 `;
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => {
-    switch (c) {
-      case '&':
-        return '&amp;';
-      case '<':
-        return '&lt;';
-      case '>':
-        return '&gt;';
-      case '"':
-        return '&quot;';
-      default:
-        return '&#39;';
-    }
-  });
 }

@@ -20,8 +20,11 @@ import { parseArgs as nodeParseArgs } from 'node:util';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-export const COMMANDS = ['setup', 'connect', 'balance', 'help'] as const;
+export const COMMANDS = ['setup', 'connect', 'fund', 'balance', 'help'] as const;
 export type Command = (typeof COMMANDS)[number];
+
+export const NETWORKS = ['mainnet', 'testnet'] as const;
+export type NetworkArg = (typeof NETWORKS)[number];
 
 export interface CliArgs {
   command: Command;
@@ -31,12 +34,20 @@ export interface CliArgs {
   /** `--version`/`-v`, from any position. Same precedence as `help`. */
   version: boolean;
   yes: boolean;
-  network: 'testnet' | 'mainnet' | undefined;
+  /** Resolved from `--network <name>` and the `--testnet` shorthand.
+   * `undefined` means "not specified" — each command falls back to the
+   * configured network, then to mainnet. */
+  network: NetworkArg | undefined;
   importKey: string | undefined;
   skipHosts: boolean;
   checkBalance: boolean;
   scope: string | undefined;
   fundAmount: string | undefined;
+  /** `--usd`, for `fund`. Deliberately NOT named `--amount`: `--fund-amount`
+   * next to it is denominated in 0G, and two adjacent amount flags with
+   * different units is a trap. */
+  usd: number | undefined;
+  skipFunding: boolean;
   noOpen: boolean;
   port: number | undefined;
   newWallet: boolean;
@@ -68,11 +79,17 @@ const OPTION_SPEC = {
   version: { type: 'boolean', short: 'v' },
   yes: { type: 'boolean', short: 'y' },
   network: { type: 'string' },
+  // Shorthand for `--network testnet`. Worth its own flag: mainnet is the
+  // default now, so "let me try this without spending money" is a common
+  // intent and should not require knowing the name of a chain.
+  testnet: { type: 'boolean' },
   'import-key': { type: 'string' },
   'skip-hosts': { type: 'boolean' },
   'check-balance': { type: 'boolean' },
   scope: { type: 'string' },
   'fund-amount': { type: 'string' },
+  usd: { type: 'string' },
+  'skip-funding': { type: 'boolean' },
   'no-open': { type: 'boolean' },
   port: { type: 'string' },
   'new-wallet': { type: 'boolean' },
@@ -87,6 +104,8 @@ const HELP_VERSION_DEFAULTS = {
   checkBalance: false,
   scope: undefined,
   fundAmount: undefined,
+  usd: undefined,
+  skipFunding: false,
   noOpen: false,
   port: undefined,
   newWallet: false,
@@ -137,17 +156,57 @@ export function parseArgs(argv: string[]): CliArgs {
     }
   }
 
+  // Network resolution, and the reason it validates rather than casts.
+  //
+  // `--network` used to be passed through unchecked, and every consumer asks
+  // `network === 'mainnet' ? … : testnet`. So `--network mainet` did not
+  // error — it silently ran on TESTNET. That is precisely the F2 failure
+  // this file exists to prevent (a typo'd flag performing a different
+  // operation than the one asked for), and flipping the default to mainnet
+  // made it worse: a typo now silently demotes a user off the network whose
+  // writes are durable.
+  let network: NetworkArg | undefined;
+  if (typeof values.network === 'string') {
+    if (!(NETWORKS as readonly string[]).includes(values.network)) {
+      throw new CliUsageError(
+        `--network expects ${NETWORKS.join(' or ')}, got '${values.network}'`
+      );
+    }
+    network = values.network as NetworkArg;
+  }
+  if (values.testnet) {
+    // Contradictory intent — pick neither rather than silently preferring
+    // one. Both spellings are explicit, so guessing would be wrong.
+    if (network === 'mainnet') {
+      throw new CliUsageError('--testnet contradicts --network mainnet; pass only one');
+    }
+    network = 'testnet';
+  }
+
+  let usd: number | undefined;
+  if (typeof values.usd === 'string') {
+    // Accept "$25" as well as "25" — the flag is a dollar amount and people
+    // type the sign. `fund.ts` clamps the value to the provider's range;
+    // this only rejects input that is not a number at all.
+    usd = Number(values.usd.replace(/^\$/, ''));
+    if (!Number.isFinite(usd) || usd <= 0) {
+      throw new CliUsageError(`--usd expects a positive number, got '${values.usd}'`);
+    }
+  }
+
   return {
     command: command as Command,
     help: false,
     version: false,
     yes: Boolean(values.yes),
-    network: values.network as 'testnet' | 'mainnet' | undefined,
+    network,
     importKey: values['import-key'] as string | undefined,
     skipHosts: Boolean(values['skip-hosts']),
     checkBalance: Boolean(values['check-balance']),
     scope: values.scope as string | undefined,
     fundAmount: values['fund-amount'] as string | undefined,
+    usd,
+    skipFunding: Boolean(values['skip-funding']),
     noOpen: Boolean(values['no-open']),
     port,
     newWallet: Boolean(values['new-wallet']),
@@ -163,12 +222,14 @@ export function printHelp(): void {
       'Usage:',
       '  npx dmemo connect [options]    Connect a browser wallet; derive your memory key from a signature',
       '  npx dmemo setup [options]      Generate/import a wallet, write config, wire up hosts',
+      '  npx dmemo fund [options]       Add 0G to your dMemo account (card, any chain, or your wallet)',
       '  npx dmemo balance              Check the funding balance of the configured wallet',
       '  npx dmemo help | --help | -h   Show this message',
       '  npx dmemo --version | -v       Show the CLI version',
       '',
       'Options for `connect`:',
-      '  --network <name>     testnet (default) | mainnet',
+      '  --testnet            Shorthand for --network testnet',
+      '  --network <name>     mainnet (default) | testnet',
       '  --scope <name>       Memory namespace (default: "default"). Part of the signed',
       '                       message, so a different scope on the same wallet yields a',
       '                       separate, isolated dMemo account.',
@@ -180,12 +241,30 @@ export function printHelp(): void {
       '',
       'Options for `setup`:',
       '  --yes, -y            Non-interactive: generate a wallet, skip prompts',
-      '  --network <name>     testnet (default) | mainnet',
+      '  --testnet            Shorthand for --network testnet (free, throwaway; faucet-funded)',
+      '  --network <name>     mainnet (default) | testnet',
       '  --import-key <hex>   Import an existing private key instead of generating one',
       '  --new-wallet         Mint a new wallet even though one is configured (asks first)',
       '  --force, -f          Grant permission to replace the configured wallet',
       '  --skip-hosts         Skip host detection/install (wallet + config only)',
-      '  --check-balance      Poll the wallet balance once after printing the faucet link',
+      '  --skip-funding       Do not offer to fund the wallet; just print how to',
+      '  --check-balance      Report the balance out loud even when it is still zero',
+      '',
+      'Options for `fund`:',
+      '  --usd <n>            Prefill the card amount in USD (5-3000, default 25)',
+      '  --fund-amount <n>    Amount (in 0G) the "send from my wallet" button offers',
+      '  --testnet            Shorthand for --network testnet',
+      '  --network <name>     mainnet (default) | testnet',
+      '  --no-open            Print the URL instead of launching a browser',
+      '  --port <n>           Bind a fixed loopback port instead of an ephemeral one',
+      '',
+      'Funding your account:',
+      '  Memory writes cost ~0.0012-0.003 0G each, paid on 0G mainnet, so the',
+      '  account needs a small balance. `dmemo fund` covers every starting point:',
+      '  a wallet that already holds 0G, crypto on another chain (Base, Arbitrum,',
+      '  Optimism, Polygon, BNB and more), or a card / Apple Pay / Google Pay —',
+      '  that last one needs no wallet and no crypto at all. Testnet has no such',
+      '  rails; there it is the faucet only.',
       '',
       'About your wallet:',
       '  ~/.dmemo/config.json holds the ONLY key that can decrypt your memories on',

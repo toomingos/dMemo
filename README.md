@@ -21,12 +21,19 @@ to your wallet's public key, and persisted as an append-only chain of blobs on
 ## Quickstart
 
 ```bash
-npx dmemo setup
+npx dmemo setup             # 0G mainnet (default)
+npx dmemo setup --testnet   # free, throwaway chain — evaluate without spending
 ```
 
-Generates (or imports) a wallet, walks you through testnet funding, writes
-`~/.dmemo/config.json`, and installs the adapter for every supported host it detects. The
-memory leg needs no web sign-ins, no API keys, and no accounts — just a funded testnet wallet.
+Generates (or imports) a wallet, writes `~/.dmemo/config.json`, offers to fund the account, and
+installs the adapter for every supported host it detects. The memory leg needs no web sign-ins,
+no API keys, and no accounts — just a funded wallet.
+
+**Funding.** Memory writes cost ~0.0012–0.003 0G each, so the account needs a small balance.
+`npx dmemo fund` (also offered by `setup`) handles every starting point from a local page: send
+from a wallet you already have, convert crypto you hold on Base / Arbitrum / Optimism / Polygon /
+BNB and more, or pay by card, Apple Pay, or Google Pay — that last one needs no wallet and no
+crypto at all. On `--testnet` it is the faucet instead. `npx dmemo balance` checks it any time.
 
 Re-running `setup` **keeps the wallet already on record** and just re-wires hosts — that key is
 the only thing that can decrypt your memories, so replacing it takes an explicit `--new-wallet`
@@ -87,7 +94,7 @@ agent turn ──▶ mem0 OSS (local extraction + local embeddings)
 | [`packages/opencode-plugin`](packages/opencode-plugin) | OpenCode plugin (every-turn recall, capture, compaction hook) |
 | [`packages/openclaw-plugin`](packages/openclaw-plugin) | OpenClaw memory-slot plugin (recall, capture, dream consolidation) |
 | [`packages/hermes-plugin`](packages/hermes-plugin) | Hermes `MemoryProvider` — native Python engine on the same blob spec, storage via a Node bridge |
-| [`packages/setup-cli`](packages/setup-cli) | `npx dmemo setup` onboarding CLI |
+| [`packages/setup-cli`](packages/setup-cli) | `npx dmemo setup` onboarding CLI (`connect`, `fund`, `balance`) |
 | [`packages/integration-tests`](packages/integration-tests) | Live-testnet integration suite (private) |
 
 ## Docs
@@ -101,8 +108,9 @@ agent turn ──▶ mem0 OSS (local extraction + local embeddings)
 
 ## Status
 
-v0.1.0 (testnet). All packages build (`pnpm -r build`) and pass tests (`pnpm -r test`);
-integration-tested live on 0G Galileo testnet (chain 16602). Not yet published to npm.
+v0.1.0. All packages build (`pnpm -r build`) and pass tests (`pnpm -r test`);
+integration-tested live on 0G Galileo testnet (chain 16602). The setup CLI now defaults to
+0G mainnet (Aristotle, chain 16661), with testnet one `--testnet` away. Not yet published to npm.
 Runs on **Node.js ≥ 20 and Bun** — Bun hosts (OpenCode loads plugins in-process under Bun) are
 handled transparently by `@dmemo/core`, which routes mem0's `better-sqlite3` dependency to
 `bun:sqlite` (see [packages/core](packages/core#runtime-support)).
