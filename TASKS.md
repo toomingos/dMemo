@@ -91,6 +91,12 @@ Hermes/Python = v1.1. Network: testnet Galileo first (D14), one-env-var mainnet 
     `scope` is descriptive metadata inside blobs. One wallet = one memory chain. Any test or
     host that needs isolated chains must use a separate (ephemeral, funded) wallet — the spike
     wallet's own chain carries pre-spec blobs and will fail ECIES decode (by design).
+19. *(Demo/T5 finding)* The SDK's ECIES rides on **AES-CTR (unauthenticated)**: `tryDecrypt`
+    with a *wrong* private key does NOT throw — it returns `decrypted:true` with deterministic
+    garbage bytes (`downloadAndVerify` then "succeeds" and hands back noise). Confidentiality
+    holds (no plaintext is recoverable), but wrong-key detection only happens downstream when
+    `decodeBlob` rejects the garbage. Never treat a non-throwing `downloadAndVerify` as proof
+    the caller held the right key; treat `decodeBlob` failure as the authoritative signal.
 
 ---
 
