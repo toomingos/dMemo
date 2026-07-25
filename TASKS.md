@@ -178,6 +178,26 @@ Hermes/Python = v1.1. Network: testnet Galileo first (D14), one-env-var mainnet 
     different operation. `--help`/`-h` and `--version`/`-v` are resolved first, from any argv
     position, before the command positional is even validated. Any new flag or subcommand must go
     through this same table (`packages/setup-cli/src/cliArgs.ts`), not a second hand-rolled parser.
+24. *(F1)* **`@dmemo/core`'s `loadConfigFromEnv` is env-only by design (T1.6) — a host that calls
+    it directly never sees `~/.dmemo/config.json`, and the failure is silent, not an error.** This
+    is exactly what the OpenCode plugin did (`loadConfigFromEnv(process.env)`), so `dmemo setup`
+    reported success while OpenCode behaved as if nothing was configured — no error, no log, just
+    a no-op plugin. Claude Code/Codex worked only because `@dmemo/node-adapter`'s `loadDmemoEnv`
+    merges the file into `process.env` (env wins per-key) before anything touches
+    `loadConfigFromEnv`; OpenClaw worked only because its `openclaw-plugin/src/config.ts` has its
+    own separate file reader. **The rule going forward: any code path that resolves dMemo config
+    must go through `@dmemo/core`'s `loadDmemoConfig` (not `loadConfigFromEnv` directly), which
+    merges `${DMEMO_HOME:-~/.dmemo}/config.json` under `process.env` per-key (env always wins,
+    matching `loadDmemoEnv`'s precedence) before delegating to `loadConfigFromEnv`, and throws
+    `ConfigNotFoundError` — naming the exact path it looked for, never key material — when neither
+    source has a key.** `loadConfigFromEnv` itself is deliberately left untouched/env-only so
+    existing callers (and its own tests) keep exact prior behavior. This does couple `@dmemo/core`
+    to `node:fs`/`node:os`, but that portability line was already crossed by `better-sqlite3`/
+    `fastembed`/`pg` (gotcha 22) — this doesn't add a new constraint. `@dmemo/node-adapter` is
+    `private: true` (Claude Code/Codex-only, bundled into `.cjs` hook scripts) and must not become
+    a dependency of publishable packages like `@dmemo/opencode-plugin`/`@dmemo/openclaw-plugin` —
+    that's why the shared reader lives in `@dmemo/core`, which every host already depends on,
+    rather than in the adapter.
 
 ---
 

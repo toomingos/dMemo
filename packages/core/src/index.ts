@@ -25,7 +25,15 @@ export {
 } from './embedder.js';
 export type { ExplicitEmbedderConfig, ResolvedEmbedderConfig, EmbedderProvider } from './embedder.js';
 
-export { loadConfigFromEnv, MissingConfigError } from './config.js';
+export {
+  loadConfigFromEnv,
+  loadDmemoConfig,
+  MissingConfigError,
+  ConfigNotFoundError,
+  dmemoHome,
+  dmemoConfigPath,
+  readDmemoConfigFile,
+} from './config.js';
 export type { DmemoConfig, EnvSource } from './config.js';
 
 export { deriveEpochKey, forget } from './forget.js';

@@ -33,6 +33,20 @@ the only thing that can decrypt your memories, so replacing it takes an explicit
 / `--import-key` plus confirmation, and always leaves a timestamped `0600` backup
 ([details](packages/setup-cli/README.md#replacing-a-wallet)).
 
+### Config precedence
+
+Every host (Claude Code, Codex, OpenCode, OpenClaw) resolves config the same way, so the
+result of `dmemo setup` is visible everywhere identically:
+
+1. a real environment variable (e.g. `DMEMO_PRIVATE_KEY=... opencode`) always wins,
+2. otherwise `${DMEMO_HOME:-~/.dmemo}/config.json` (written by `dmemo setup`/`dmemo connect`,
+   mode `0600`) is used,
+3. otherwise dMemo reports it found neither — naming the exact path it looked for — and points
+   you at `dmemo setup`, instead of silently doing nothing.
+
+Precedence is per-key, not all-or-nothing: an env var covers just `DMEMO_NETWORK`, say, and the
+rest still comes from the file.
+
 ## 30-second live demo
 
 ```bash
