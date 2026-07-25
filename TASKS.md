@@ -245,6 +245,29 @@ Hermes/Python = v1.1. Network: testnet Galileo first (D14), one-env-var mainnet 
     degrade to the older candidate, unchanged. This covers the mixed case too: head `corrupt`,
     next candidate `transient`, next-next candidate good — still refuses, because a later retry
     might recover the `transient` one, which is newer than the candidate that resolved.
+28. *(F7 follow-up)* **F7's `installGracefulShutdown` (`packages/core/src/runtime/shutdown.ts`)
+    was written host-agnostic but only wired into the two long-lived plugin hosts (OpenCode,
+    OpenClaw) at first — Claude Code's and Codex's hook processes (`packages/node-adapter`) are
+    short-lived (gotcha 10: fresh subprocess per invocation) and were still left with zero signal
+    handling, so a hook killed mid-flush (SIGTERM/SIGINT arriving during `Stop`/`PreCompact`'s
+    write-back) silently lost the capture — same gap, different host shape. Fixed by installing
+    the handler inside `withSession()` (the one open/use/close seam every hook/CLI entry point
+    already funnels through) right after `DmemoSession.open()` succeeds, kept live through
+    `withSession()`'s own `finally`'s `close()`, uninstalled only after. No second shutdown
+    implementation — same module, reused as-is. Key difference from the long-lived hosts: a
+    short-lived hook process has no open sockets of its own to protect for its "whole life", so
+    the handler only needs to be installed for the open-session window, not the process's entire
+    lifetime — and `session.close()` being idempotent (T1.4: `if (this.closed) return`) makes it
+    safe for both the shutdown handler's `dispose()` and `withSession()`'s own `finally` close()
+    to race each other with no special guarding. Timeout kept at `installGracefulShutdown`'s
+    existing 4s default (not a new constant) — verified against every hook's own host-enforced
+    timeout (Claude Code's `hooks/hooks.json`, Codex's `hooks-template.json`): tightest is
+    `UserPromptSubmit`/`PreToolUse` at 10s, rest are 30s, so 4s leaves ample margin. Covered by
+    `packages/node-adapter/src/lib/hook-shutdown.test.ts`: real child-process signal tests
+    mirroring `shutdown.test.ts` but deliberately *without* the artificial `setInterval` keep-alive
+    that test uses to stand in for a long-lived host — a hook process's own bounded async work
+    (a real timer, same shape as an in-flight network call) is what keeps its event loop alive,
+    and that's what's under test here.
 
 ---
 

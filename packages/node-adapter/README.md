@@ -38,6 +38,34 @@ are installed/linked at first run into `~/.dmemo/native/` via
 `TASKS.md` gotcha 17 for why (`Module.globalPaths`/`NODE_PATH` don't work
 for a bundled `.cjs`'s dynamic `import()`).
 
+## Graceful shutdown (gotcha 28)
+
+Every hook/CLI entry point above funnels through `withSession()`
+(`src/lib/dmemo.ts`), which is the single open/use/close seam for a
+`DmemoSession` per invocation. `withSession()` installs `@dmemo/core`'s
+`installGracefulShutdown` right after `DmemoSession.open()` succeeds and
+keeps it live through its own `finally`'s `close()` — so a SIGTERM/SIGINT/
+SIGHUP arriving anywhere in that window (most importantly, mid-flush
+during a `Stop`/`PreCompact` write-back) now runs the same bounded
+`waitForPendingFlush()` + `close()` a normal return would, instead of
+losing the capture to the signal's default disposition. This reuses F7's
+existing, host-agnostic shutdown module unchanged (no second
+implementation) — see `packages/core/src/runtime/shutdown.ts`'s header for
+the full constraints (never `process.exit()`, why re-delivering the
+original signal is required, why a hung flush is force-terminated via
+`SIGKILL`).
+
+Timeout: defaults to `installGracefulShutdown`'s own
+`DEFAULT_SHUTDOWN_TIMEOUT_MS` (4s), overridable via
+`DMEMO_SHUTDOWN_TIMEOUT_MS`. Checked against every hook's own
+host-enforced timeout (`../../claude-dmemo/plugin/hooks/hooks.json`,
+`src/codex/hooks-template.json`): the tightest is `UserPromptSubmit`/
+`PreToolUse` at 10s, the rest are 30s — 4s leaves comfortable margin under
+the tightest of those budgets. Covered by
+`src/lib/hook-shutdown.test.ts` (real child-process signal tests, mirroring
+`packages/core/src/runtime/shutdown.test.ts` but for a short-lived,
+hook-shaped process with no artificial keep-alive).
+
 ## Development
 
 ```bash
