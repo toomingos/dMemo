@@ -17,6 +17,21 @@ export function rpcUrlFor(network: NetworkName): string {
   return network === 'mainnet' ? MAINNET_RPC_URL : TESTNET_RPC_URL;
 }
 
+export function chainIdFor(network: NetworkName): number {
+  return network === 'mainnet' ? MAINNET_CHAIN_ID : TESTNET_CHAIN_ID;
+}
+
+export function chainNameFor(network: NetworkName): string {
+  return network === 'mainnet' ? '0G Mainnet' : '0G Galileo Testnet';
+}
+
+/** EIP-3085/3326 want the chain id as a 0x-prefixed minimal hex string. */
+export function chainIdHexFor(network: NetworkName): string {
+  return '0x' + chainIdFor(network).toString(16);
+}
+
+export const CURRENCY_SYMBOL = '0G';
+
 export function faucetInstructions(address: string): string {
   return [
     `Fund your wallet on 0G testnet (Galileo, chain ${TESTNET_CHAIN_ID}):`,
