@@ -1,0 +1,11 @@
+{
+  "name": "@dmemo/hermes-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Node-side storage bridge for the Python dMemo Hermes provider — exposes @dmemo/core's StorageClient over line-delimited JSON on stdio.",
+  "main": "./bridge/storage-bridge.mjs",
+  "dependencies": {
+    "@dmemo/core": "workspace:*"
+  }
+}

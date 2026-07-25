@@ -46,6 +46,15 @@ the spike model: even the fastest observed cold restore (2.73s) leaves near-zero
 P50/P95 both exceed 3s. v1.1 Hermes needs a warm cache kept resident or async prefetch — never
 a synchronous cold restore on the request path.
 
+**Resolved in v1.1 by construction** (`packages/hermes-plugin`, measured live 2026-07-25 in
+T6.2): the provider pays restore *once* inside `initialize()`, at Hermes startup, and keeps the
+engine resident — 6.09s and 6.25s for a 2-blob chain (568 KB checkpoint + 5.5 KB delta) across
+the two conversations, which would indeed have blown a 3s per-request budget had it been on the
+request path. The 3s budget is spent only on per-turn prefetch against the resident store, which
+measured **14.6 / 25.8 / 40.9 / 85.0 ms** — three orders of magnitude inside it. So the FLAG row
+above stands as a statement about synchronous cold restore, and is not a live constraint on the
+shipped provider.
+
 Live host-level corroboration (from the T5.1 host smoke tests, real hook subprocesses, not the
 raw `DmemoSession.open()` micro-benchmark above — includes host framework overhead):
 

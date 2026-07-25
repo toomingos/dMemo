@@ -26,3 +26,9 @@ benchmarks/local_cache/
 
 # Claude Code local session config
 .claude/
+
+# Python build/bytecode artifacts (packages/hermes-plugin)
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/

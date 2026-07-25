@@ -1,0 +1,5 @@
+name: dmemo
+version: 0.1.0
+description: "dMemo — private, decentralized memory on 0G Storage. Turns are embedded locally and encrypted to your own wallet key before they leave the machine; no server, no plaintext, no third party."
+pip_dependencies:
+  - dmemo-hermes>=0.1.0

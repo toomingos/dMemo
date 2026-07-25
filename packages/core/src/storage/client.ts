@@ -132,6 +132,8 @@ const DEFAULT_UPLOAD_TIMEOUT_MS = 120_000;
  * ~500 KB overran the flat 120 s ceiling; the segment push is roughly linear
  * in size, so the budget has to be too. */
 const UPLOAD_TIMEOUT_MS_PER_KB = 600;
+/** 0G segment size: 256-byte chunks x 1024 (SDK `DEFAULT_SEGMENT_SIZE`). */
+const OG_SEGMENT_BYTES = 256 * 1024;
 const DEFAULT_DOWNLOAD_TIMEOUT_MS = 45_000;
 const DEFAULT_POINTER_CANDIDATES = 8;
 /** Attempts per blob before a download/verify failure is treated as (even
@@ -264,8 +266,28 @@ export class StorageClient {
     // (see the constructor / quietIndexer.ts) — the SDK's own progress
     // lines from inside upload() never reach real stdout, with no
     // per-call-site wrapping to remember.
+    // `taskSize` is one-task-per-node, deliberately.
+    //
+    // The SDK's `splitTasks()` builds a task list per storage node and then
+    // interleaves them — but it bounds the outer loop by `uploadTasks[0].length`
+    // after sorting the lists *ascending*, i.e. by the SHORTEST list. Any node
+    // that needs more tasks than the shortest one silently loses its tail
+    // tasks, and the segments in them are never pushed. The Submit tx is
+    // already mined by then, so the result is a paid-for entry that never
+    // finalizes and never becomes retrievable (observed live: a 528,397-byte
+    // blob reported `uploadedSegNum: 2` of 3 and hung until the app-level
+    // timeout). At the SDK's default `taskSize: 1` that bites any payload
+    // needing more than two segments — which is every checkpoint we write.
+    //
+    // Sizing a task to cover the whole file means each node's `while
+    // (segIndex <= endSegmentIndex)` loop pushes exactly one task, every list
+    // has length 1, and the truncation has nothing to truncate. `uploadTask()`
+    // still walks only its own shard's segments (`segIndex += numShard`) and
+    // stops early on `allDataUploaded`, so this batches, it does not overshoot.
+    const taskSize = Math.max(1, Math.ceil(plaintext.byteLength / OG_SEGMENT_BYTES));
     const uploadPromise = this.indexer.upload(file, this.network.rpcUrl, signerArg, {
       encryption: { type: 'ecies', recipientPubKey },
+      taskSize,
     });
     // Scale the budget with payload size: a checkpoint is orders of magnitude
     // larger than a delta, and a flat ceiling that comfortably fits a 3 KB

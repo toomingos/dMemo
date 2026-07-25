@@ -2,7 +2,7 @@
 
 **Private, decentralized, plug-and-play memory for AI agents.**
 
-dMemo gives coding and personal agents (Claude Code, Codex, OpenCode, OpenClaw) persistent
+dMemo gives coding and personal agents (Claude Code, Codex, OpenCode, OpenClaw, Hermes) persistent
 long-term memory that the agent's host never owns: memories are extracted locally with
 [mem0 OSS](https://github.com/mem0ai/mem0), embedded locally (no embedding API calls), encrypted
 to your wallet's public key, and persisted as an append-only chain of blobs on
@@ -35,7 +35,7 @@ the only thing that can decrypt your memories, so replacing it takes an explicit
 
 ### Config precedence
 
-Every host (Claude Code, Codex, OpenCode, OpenClaw) resolves config the same way, so the
+Every host (Claude Code, Codex, OpenCode, OpenClaw, Hermes) resolves config the same way, so the
 result of `dmemo setup` is visible everywhere identically:
 
 1. a real environment variable (e.g. `DMEMO_PRIVATE_KEY=... opencode`) always wins,
@@ -86,6 +86,7 @@ agent turn ──▶ mem0 OSS (local extraction + local embeddings)
 | [`claude-dmemo/`](claude-dmemo) | Claude Code plugin + marketplace repo (`/plugin install dmemo`) |
 | [`packages/opencode-plugin`](packages/opencode-plugin) | OpenCode plugin (every-turn recall, capture, compaction hook) |
 | [`packages/openclaw-plugin`](packages/openclaw-plugin) | OpenClaw memory-slot plugin (recall, capture, dream consolidation) |
+| [`packages/hermes-plugin`](packages/hermes-plugin) | Hermes `MemoryProvider` — native Python engine on the same blob spec, storage via a Node bridge |
 | [`packages/setup-cli`](packages/setup-cli) | `npx dmemo setup` onboarding CLI |
 | [`packages/integration-tests`](packages/integration-tests) | Live-testnet integration suite (private) |
 

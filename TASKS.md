@@ -112,15 +112,30 @@ Hermes/Python = v1.1. Network: testnet Galileo first (D14), one-env-var mainnet 
     fix. The rootHash is computed locally from the Submit event's submission nodes
     (right-fold keccak256 — verified against `zgs_getFileInfo(...).tx.dataMerkleRoot`), so
     pointer resolution no longer needs any storage-node RPC.
-    **(c) Large multi-segment uploads can silently lose their final segment on one shard**:
-    three consecutive ~17.1MB uploads (67 segments) all left the shard-0 node at exactly
-    66/67 with segment 66 served by NO node — the file can never finalize and the data is
-    unrecoverable. Upstream 0G issue (report: txSeq 143558/143559/143561, wallet
-    `0x4D46bb09942Fa5558Fc9527F95DD4432D0503682`, July 25 2026). dMemo's normal blobs
-    (~16KB deltas, single segment) are unaffected; only the LoCoMo benchmark's giant
-    checkpoints hit this. Mitigations: benchmark harness durability gate (verify covering
-    set for the whole restore-chain suffix BEFORE wiping local state) +
-    `session.droppedFlushCount` (fail-open drops are now detectable).
+    **(c) Multi-segment uploads silently lose their tail segments — ROOT-CAUSED (T6.1), and it
+    is an SDK bug, not a storage-network one.** `@0gfoundation/0g-ts-sdk@1.2.8`'s
+    `Uploader.splitTasks()` builds a task list *per storage node*, sorts the lists **ascending
+    by length**, then interleaves them with the outer loop bounded by `uploadTasks[0].length` —
+    the **shortest** list. Every task past that bound is dropped on the floor, so whichever node
+    needs the most tasks never receives its tail segments. The Submit tx is already mined by
+    then (see (b)), so the result is a paid-for log entry that never finalizes and never becomes
+    retrievable. At the SDK default `taskSize: 1` (one task per segment) this bites **any**
+    payload over two segments (512 KB).
+    This exactly reproduces the earlier "upstream" forensics: 67 segments over `numShard: 2` →
+    shard-0 needs 34 tasks, shard-1 needs 33, the loop is bounded at 33, and shard-0's 34th task
+    — **segment 66** — is dropped. That is precisely the 66/67 stall observed on txSeq
+    143558/143559/143561. Re-observed live on a 528 397-byte blob: `uploadedSegNum: 2` of 3,
+    hung until the app-level timeout, dead pointer left behind.
+    So it is NOT benchmark-only: **every dMemo checkpoint** is over the threshold (measured
+    528–580 KB at ~60 memories), which is what wedged the T6.1 wallet. Deltas (~3–7 KB, single
+    segment) were never affected, which is why it stayed hidden.
+    **Fix** (`storage/client.ts`): pass `taskSize = ceil(bytes / 256 KB)` so each node's
+    `while (segIndex <= endSegmentIndex)` loop emits exactly one task — every list has length 1
+    and the truncation has nothing to truncate. `uploadTask()` still walks only its own shard's
+    segments (`segIndex += numShard`) and stops on `allDataUploaded`, so this batches rather than
+    overshooting. Measured: 528 KB went from timing out at 430 s to confirming in 12 s.
+    Retained mitigations: benchmark harness durability gate (verify covering set for the whole
+    restore-chain suffix BEFORE wiping local state) + `session.droppedFlushCount`.
 21. **`DMEMO_PRIVATE_KEY` is not a rotatable credential — treat every write of it as
     destructive.** It is the only key that can decrypt a wallet's blobs on 0G, so replacing it
     does not "reconfigure" anything, it orphans every memory written under it. Any code path
@@ -346,6 +361,42 @@ Hermes/Python = v1.1. Network: testnet Galileo first (D14), one-env-var mainnet 
     that test uses to stand in for a long-lived host — a hook process's own bounded async work
     (a real timer, same shape as an in-flight network call) is what keeps its event loop alive,
     and that's what's under test here.
+
+29. *(F6 follow-up)* **Refuse-don't-degrade (gotcha 26) is correct against *other people's*
+    outages and catastrophically wrong against *your own wreckage* — 0G mines the Submit
+    transaction before the segment data is durable, so any upload abandoned after that point
+    (app-level timeout, crash, gotcha 20(c)'s dropped tail tasks) leaves a paid-for pointer at
+    the head of the wallet's Submit log with permanently nothing behind it.** Restore sees an
+    unreachable head, cannot distinguish "the network is having a bad minute" from "this blob
+    will never exist", and correctly refuses — forever. Observed live: four such pointers wedged
+    every subsequent session on that wallet, and the failure is not self-healing because the
+    dead pointers never age out of the candidate window on their own. The fix is a strictly
+    local, first-person marker (`AbandonedUploadEntry` in `packages/core/src/storage/
+    pointerCache.ts`, namespaced `abandoned-upload:${network}:${wallet}` so old readers of the
+    flat cache map ignore it): `upload()` writes `recordUploadStarted({ fromBlock: <current
+    block> })` *before* the SDK call can mine anything — written first precisely so a hard crash,
+    not just a caught timeout, still leaves the evidence — and every exit that is not a confirmed
+    upload promotes it to abandoned. `resolveCandidates()` then stamps `orphanSuspect: true` on
+    any pointer at or above `fromBlock`, and the restore walk reports those as
+    `BlobSkipReason: 'orphaned'` and walks past them instead of refusing. Three properties carry
+    the whole safety argument and are each covered by a test:
+    - **First-person only.** The marker says "*this client* started an upload here". A pointer
+      that is unreachable *without* the marker still raises `RestoreTemporarilyUnavailableError`
+      (`test_an_unreachable_head_without_the_marker_still_refuses`). Nothing about another
+      writer's blob, or a transient node outage, is ever skipped.
+    - **`fromBlock` only ever moves backwards.** Wreckage accumulates: abandon at block 100,
+      abandon again at 200, and overwriting with 200 would silently un-explain the pointer at
+      100 — which is still inside the Submit-log scan window and would wedge restore all over
+      again.
+    - **Only a *confirmed upload* retires the marker.** A successful *restore* must not — it
+      proves an older blob is readable, which says nothing about whether the dead heads above it
+      ever will be. An earlier revision cleared the marker on restore and that is exactly the bug
+      that put the wallet back into the wedged state one session later; the clear-on-restore
+      block was removed from both `session.ts` and `session.py`, and
+      `clear_abandoned_upload_marker` was deleted from the Python transport, the Node bridge, and
+      the test doubles so there is no way to call it at all.
+    Cost of getting this wrong is not just a bad session: each dead pointer is a real transaction
+    fee already spent, and the wallet stays unusable until someone hand-edits the cache.
 
 ---
 
@@ -768,6 +819,81 @@ Output: table in `docs/benchmarks.md`.
 
 ---
 
+## T6 — Hermes adapter (v1.1, built)
+
+`packages/hermes-plugin` — a **native Python** implementation of the engine, not a bridge to the
+TypeScript one. Per D16 the blob spec is the cross-language contract, and it holds: the same
+wallet's chain is written and read by both SDKs, and `encodeBlob` produces byte-identical output
+in both languages (sha256 `220088c0…`, verified over a fixture with unicode, escapes, nulls and
+nested payloads).
+
+| Layer | Implementation |
+|---|---|
+| `blob.py` | `dmemo/1` codec — fixed key order, `<f4` base64 vectors (gotcha 14) |
+| `journal.py` | `JournalingVectorStore` — post-init wrapper, no custom-store registration (gotcha 11) |
+| `session.py` | restore chain resolution + walk-back (gotcha 20), replay, checkpoint cadence, flush worker |
+| `embedder.py` | fastembed `BAAI/bge-small-en-v1.5` canonicalized to the TS identity `fast-bge-small-en-v1.5/384` so a Python host never triggers a spurious re-embed migration |
+| `provider.py` | Hermes `MemoryProvider` — 3s prefetch budget, 5/120s circuit breaker, read-only for non-primary agent contexts |
+| `transport.py` | `StorageTransport` protocol; `NodeBridgeTransport` = persistent Node subprocess over `@dmemo/core`'s `StorageClient` |
+
+**The one seam.** There is no 0G SDK for Python. A native storage leg would mean reimplementing
+the Merkle chunk scheme, FixedPriceFlow submission, segment upload, ECIES and Submit-log pointer
+resolution — four places to get a consensus detail wrong, with a user's memory as the failure
+mode. So storage is a protocol with one call surface (`upload`, `download_and_verify`,
+`resolve_candidates`, `save_pointer`) and its first implementation shells out to the already
+live-proven TypeScript client. Everything above the seam is real Python. If a 0G Python SDK
+lands, it slots in behind the same protocol with no change above it.
+
+### T6.1 — Cross-session test on Hermes (passed 2026-07-25)
+
+Two separate processes, Hermes's own plugin loader and `MemoryManager`, wallet
+`0x4d20a139…2647` on testnet, scope `hermes:tomasdomingos:halcyon9`.
+
+- **Session A** planted 18 facts over 6 turns, then exited. Wrote 2 blobs (checkpoint seq 39 +
+  delta seq 40), 427 191 bytes, 0.002397 0G.
+- **Session B**, fresh process with an empty temp workdir, restored 46 vectors from 2 blobs in
+  5.7 s and answered all 7 recall questions from memory alone — 6 at rank 1, 7/7 in the injected
+  top-5.
+- **Independent check**: re-downloading both roots, re-deriving the Merkle root over the
+  ciphertext and decrypting recovered 18/18 planted facts.
+
+### T6.2 — Cross-session test with a real LLM in the loop (passed 2026-07-25)
+
+T6.1 proved the memory path; it could not prove a model *uses* it, because no key for a
+Hermes-supported provider was available. This run closes that gap: same wallet, same scope,
+real Hermes CLI (`hermes --cli`), real inference via OpenRouter (`inclusionai/ling-3.0-flash:free`).
+
+- **Conversation A** — 6 turns planting 15 facts about a custom bicycle frame ("Corvid"), chosen
+  to be un-guessable: tubeset, top-tube length, builder + workshop + city, queue week, RAL paint
+  code, tyre/fender clearance, dynamo routing, price, deposit date, drivetrain-standard
+  preferences. Wrote 4 blobs across the session (checkpoints seq 55/57, deltas 56/58), 1 138 730
+  bytes total, ~0.0048 0G. Process exited.
+- **Conversation B** — a brand-new Hermes process with **zero chat history** and an empty temp
+  workdir. Restored 64 vectors from a 2-blob chain in 6.25 s (5 537 B delta + 567 888 B
+  checkpoint; Merkle-verify 10.3/58.3 ms, decrypt 14.7/14.0 ms), injected 5 496 chars of recalled
+  context, and answered **8/8 recall questions correctly** — Columbus Life steel randonneur,
+  58.5 cm TT, Anabela Trigueiro at Oficina Palude in Aveiro, week 12 of 2027, RAL 6012 with copper
+  headbadge and no decals, 700x48 with fenders, internal fork-blade dynamo for a SON 28,
+  €4 250 with a €1 500 deposit on 3 Feb 2027, threaded 1-1/8 headset + quill stem + T47 only.
+
+Three independent confirmations, because "the model said the right thing" alone is not proof:
+
+1. **Observability logs on both sides** (`transport.ready` → `pointers.resolved` →
+   `blob.downloaded` → `chain.resolved` → `session.open` → `recall.prefetch` → `capture.turn` →
+   `flush.upload.done`), so every send and every retrieve is timestamped, sized and priced.
+2. **An off-chain-free verifier** (`verify_corvid.py`): re-download both roots, re-derive the
+   Merkle root over the ciphertext, decrypt, and re-extract the planted facts from the blob
+   payload alone — **15/15**. This never touches the running engine, so it cannot be fooled by a
+   warm local cache.
+3. **A negative control**: the identical conversation-B prompt against a Hermes home with the
+   dMemo provider disabled answers **"unknown" 8/8**. That rules out the model having guessed,
+   or the harness having leaked context some other way.
+
+Not covered by this run: `infer=true` (adapters are structurally `infer:false`, D17) and
+multi-agent Hermes contexts beyond the primary one.
+
+---
+
 ## Deferred (do not build in v1)
 
 | Item | Status |
@@ -777,5 +903,5 @@ Output: table in `docs/benchmarks.md`.
 | B5 key custody for always-on agents | Own design session before any always-on deployment |
 | Wire `infer=true` → 0G Router LLM into `@dmemo/core` config (adapters hardcode `infer:false` structurally; no core slot for a Router-backed mem0 LLM exists) | v1.1 — also blocked on Router `sk-` key availability |
 | Per-scope chain partitioning (today: one flush chain per wallet address; `scope` is metadata only — gotcha 18) | v1.1 — needs multi-profile UX decision first |
-| Hermes provider (Python `mem0` + FastEmbed, same blob spec) | v1.1 — copy `hermes-agent/plugins/memory/mem0` as `dmemo` provider |
+| ~~Hermes provider (Python `mem0` + FastEmbed, same blob spec)~~ | **Built** — `packages/hermes-plugin` (see below) |
 | MCP server surface, Tapp-TEE remote mode, BEAM/MemoryAgentBench | v2 / post-hackathon |
