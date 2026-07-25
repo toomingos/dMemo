@@ -1,0 +1,397 @@
+[env] chain 16602 via https://evmrpc-testnet.0g.ai, indexer https://indexer-storage-testnet-turbo.0g.ai
+[env] balance BEFORE: 6.99128117241917149 0G (0xAA15215613Edf79f3B0D6BfD86349D96D022D108)
+
+=== STEP 1: snapshot mode ===
+PASS: Memory (snapshot mode) constructed and initialized
+PASS: added 48 memories (>= 20 required)
+[step1] added 48 memories from 24 turns
+[step1] pre-flush search result IDs: [
+  [ 'e752ddda', 'e26c264d', '76f1a695', '26e3e1d5', '4e641244' ],
+  [ 'd02cf81e', '9b03c0ff', 'e36270cf', 'e752ddda', '2cc46c73' ],
+  [ '4365a912', 'a4215a9d', '4fdb0d64', 'e752ddda', 'e9be560c' ],
+  [ '8afaa841', '019ff235', '2cc46c73', 'f71d791b', '778b414f' ],
+  [ 'e2460b3d', '7e235f72', 'e99dbdcf', 'bcd74647', '26e3e1d5' ]
+]
+[step1] infer=false spot-check samples: [
+  {
+    "query": "how was the undefined req.user error fixed",
+    "memory": "Fixed the undefined req.user crash with a JWT guard, fixed a Postgres pool leak and added indexes cutting /api/users latency from 800ms to 40ms, cleaned up the rebase conflict, and standardized API error responses."
+  },
+  {
+    "query": "database connection pool tuning and leaks",
+    "memory": "Can you review my connection pooling change?"
+  },
+  {
+    "query": "git rebase conflict resolution",
+    "memory": "How do I resolve a git rebase conflict in package-lock.json?"
+  }
+]
+[step1] envelope plaintext 181631 bytes -> ciphertext 181647 bytes (encrypt 1.0ms)
+Starting upload for file of size: 181647 bytes
+Upload options: {
+  tags: '0x',
+  submitter: '',
+  finalityRequired: true,
+  taskSize: 1,
+  expectedReplica: 1,
+  fragmentSize: 4294967296,
+  skipTx: false,
+  skipIfFinalized: true,
+  fee: 0n,
+  nonce: undefined,
+  onProgress: undefined,
+  encryption: undefined
+}
+First selected node status : {
+  connectedPeers: 2,
+  logSyncHeight: 45827061,
+  logSyncBlock: '0x68cb6c307774b94ab3e8b20a4c3dffebc0cfcdd7d5774dcf0e5eecc502a1a8e6',
+  nextTxSeq: 143342,
+  networkIdentity: {
+    chainId: 16602,
+    flowAddress: '0x22e03a6a89b950f1c82ec5e74f8eca321a105296',
+    p2pProtocolVersion: { major: 0, minor: 4, build: 0 }
+  }
+}
+Selected nodes: [
+  StorageNode {
+    url: 'http://34.83.53.209:5678',
+    timeout: 30000,
+    retry: 3
+  },
+  StorageNode {
+    url: 'http://34.169.28.106:5678',
+    timeout: 30000,
+    retry: 3
+  }
+]
+Using splitable upload (handles both single and fragment cases)
+File details - size: 181647, numSegments: 1, numChunks: 710
+Data prepared to upload root=0x4093fd93c631722e42e207545ece69bff36097fd8cde401729000366b4d7c94a size=181647 numSegments=1 numChunks=710
+Attempting to find existing file info by root hash...
+Submitting transaction with storage fee: 23603439330816n
+Transaction submitted, hash: 0x60752123a68e67768cd481a9fb7f54dfcfafd4043542e540900f8fa583b5c02a
+Wait for log entry on storage node
+Waiting for storage node to sync (height=45827074)...
+Waiting for storage node to sync (height=45827074)...
+Waiting for storage node to sync (height=45827074)...
+Waiting for storage node to sync (height=45827086)...
+Tasks created: [
+  [
+    {
+      clientIndex: 1,
+      taskSize: 1,
+      segIndex: 0,
+      numShard: 2,
+      txSeq: 143342
+    }
+  ]
+]
+Processing tasks in parallel with  1  tasks...
+All tasks processed
+Wait for log entry on storage node
+Single file upload completed - returning single result
+[step1] PASS uploaded checkpoint — tx 0x60752123a68e67768cd481a9fb7f54dfcfafd4043542e540900f8fa583b5c02a, root 0x4093fd93c631722e42e207545ece69bff36097fd8cde401729000366b4d7c94a, 16843ms, cost 0.001127639441262879 0G
+PASS: wiped local snapshot state (deleted temp db file)
+PASS: eth_getLogs-resolved root hash matches upload result (step1)
+Starting download to: /var/folders/m4/8977wlvx6jxcc9wy9vbvpjbm0000gn/T/c3-dl-1784950227604-b6um35am2xg.bin, proof: false
+Downloading single file with root hash: 0x4093fd93c631722e42e207545ece69bff36097fd8cde401729000366b4d7c94a
+Getting file locations for root hash: 0x4093fd93c631722e42e207545ece69bff36097fd8cde401729000366b4d7c94a
+Found 4 locations for 0x4093fd93c631722e42e207545ece69bff36097fd8cde401729000366b4d7c94a: [
+  'http://34.169.28.106:5678',
+  'http://34.19.125.196:5678',
+  'http://35.236.80.213:5678',
+  'http://34.83.53.209:5678'
+]
+Selected 2 of 4 nodes for 0x4093fd93c631722e42e207545ece69bff36097fd8cde401729000366b4d7c94a
+PASS: downloaded + Merkle self-verified checkpoint blob (181647 bytes, download 2976ms, verify 16.3ms)
+PASS: restored envelope mode == checkpoint
+PASS: restored Memory instance from checkpoint (replay 190.1ms)
+[step1] post-restore search result IDs: [
+  [ 'e752ddda', 'e26c264d', '76f1a695', '26e3e1d5', '4e641244' ],
+  [ 'd02cf81e', '9b03c0ff', 'e36270cf', 'e752ddda', '2cc46c73' ],
+  [ '4365a912', 'a4215a9d', '4fdb0d64', 'e752ddda', 'e9be560c' ],
+  [ '8afaa841', '019ff235', '2cc46c73', 'f71d791b', '778b414f' ],
+  [ 'e2460b3d', '7e235f72', 'e99dbdcf', 'bcd74647', '26e3e1d5' ]
+]
+PASS: STEP 1 search parity: identical IDs and scores before flush vs after restore
+
+=== STEP 2: journal mode ===
+PASS: journaling VectorStore proxy installed over native store (post-init property swap)
+[step2] batch A: added 48 memories
+Starting upload for file of size: 135519 bytes
+Upload options: {
+  tags: '0x',
+  submitter: '',
+  finalityRequired: true,
+  taskSize: 1,
+  expectedReplica: 1,
+  fragmentSize: 4294967296,
+  skipTx: false,
+  skipIfFinalized: true,
+  fee: 0n,
+  nonce: undefined,
+  onProgress: undefined,
+  encryption: undefined
+}
+First selected node status : {
+  connectedPeers: 2,
+  logSyncHeight: 45827122,
+  logSyncBlock: '0x212b678b31d021107626e64548eff7b04ef48103e58085f4151aefed1e0713aa',
+  nextTxSeq: 143343,
+  networkIdentity: {
+    chainId: 16602,
+    flowAddress: '0x22e03a6a89b950f1c82ec5e74f8eca321a105296',
+    p2pProtocolVersion: { major: 0, minor: 4, build: 0 }
+  }
+}
+Selected nodes: [
+  StorageNode {
+    url: 'http://34.83.53.209:5678',
+    timeout: 30000,
+    retry: 3
+  },
+  StorageNode {
+    url: 'http://34.169.28.106:5678',
+    timeout: 30000,
+    retry: 3
+  }
+]
+Using splitable upload (handles both single and fragment cases)
+File details - size: 135519, numSegments: 1, numChunks: 530
+Data prepared to upload root=0x087913709e9441d6122b86547daaa5717952b18a4bd13c3585d31040ac8c7471 size=135519 numSegments=1 numChunks=530
+Attempting to find existing file info by root hash...
+Submitting transaction with storage fee: 17702579498112n
+Transaction submitted, hash: 0x5e64b88cfc11293ba91a77dc4780a8ef6d1d351f8ce4db6bb7fae923a2bfda44
+Wait for log entry on storage node
+Waiting for storage node to sync (height=45827134)...
+Waiting for storage node to sync (height=45827134)...
+Waiting for storage node to sync (height=45827134)...
+Waiting for storage node to sync (height=45827134)...
+Waiting for storage node to sync (height=45827134)...
+Tasks created: [
+  [
+    {
+      clientIndex: 0,
+      taskSize: 1,
+      segIndex: 0,
+      numShard: 2,
+      txSeq: 143343
+    }
+  ]
+]
+Processing tasks in parallel with  1  tasks...
+All tasks processed
+Wait for log entry on storage node
+Single file upload completed - returning single result
+[step2] PASS uploaded delta A — tx 0x5e64b88cfc11293ba91a77dc4780a8ef6d1d351f8ce4db6bb7fae923a2bfda44, root 0x087913709e9441d6122b86547daaa5717952b18a4bd13c3585d31040ac8c7471, 135503B plaintext / 135519B cipher, 16075ms, cost 0.001164026581504179 0G
+[step2] batch B: added 12 memories
+[step2] pre-flush search result IDs: [
+  [ 'd34233e6', 'd7369fa7', '6ae2a8d1', 'e1b24e68', '6cd2f2fc' ],
+  [ '6de7a41c', '4fa4a495', '19f631f4', 'd34233e6', '7c5761a6' ],
+  [ '17840e94', '807251cc', 'ec13da40', 'd34233e6', '5f385dff' ],
+  [ 'f6b6c904', 'c9b6d123', '6573f3e1', '05bcec03', '19f631f4' ],
+  [ 'c183c4dc', '82dd2394', 'ff26a8d4', 'edb619e8', 'e1b24e68' ]
+]
+Starting upload for file of size: 33697 bytes
+Upload options: {
+  tags: '0x',
+  submitter: '',
+  finalityRequired: true,
+  taskSize: 1,
+  expectedReplica: 1,
+  fragmentSize: 4294967296,
+  skipTx: false,
+  skipIfFinalized: true,
+  fee: 0n,
+  nonce: undefined,
+  onProgress: undefined,
+  encryption: undefined
+}
+First selected node status : {
+  connectedPeers: 4,
+  logSyncHeight: 45827158,
+  logSyncBlock: '0xff2f2a7820a33b54e97b516f1f4ce64ab3cc834c7459fa75c72fdbed8c20fd5e',
+  nextTxSeq: 143344,
+  networkIdentity: {
+    chainId: 16602,
+    flowAddress: '0x22e03a6a89b950f1c82ec5e74f8eca321a105296',
+    p2pProtocolVersion: { major: 0, minor: 4, build: 0 }
+  }
+}
+Selected nodes: [
+  StorageNode {
+    url: 'http://34.19.125.196:5678',
+    timeout: 30000,
+    retry: 3
+  },
+  StorageNode {
+    url: 'http://34.169.28.106:5678',
+    timeout: 30000,
+    retry: 3
+  }
+]
+Using splitable upload (handles both single and fragment cases)
+File details - size: 33697, numSegments: 1, numChunks: 132
+Data prepared to upload root=0xa1b44793796bae41e6fbcefab53076c322b7b662e119a29e5b1c01fc9edbcb11 size=33697 numSegments=1 numChunks=132
+Attempting to find existing file info by root hash...
+Submitting transaction with storage fee: 4425644874528n
+Transaction submitted, hash: 0x7e45f7edc278d7f9cad8f115933f521c2a6334d033993019e110e7307df8f31f
+Wait for log entry on storage node
+Waiting for storage node to sync (height=45827171)...
+Waiting for storage node to sync (height=45827171)...
+Waiting for storage node to sync (height=45827171)...
+Waiting for storage node to sync (height=45827171)...
+Waiting for storage node to sync (height=45827171)...
+Tasks created: [
+  [
+    {
+      clientIndex: 0,
+      taskSize: 1,
+      segIndex: 0,
+      numShard: 2,
+      txSeq: 143344
+    }
+  ]
+]
+Processing tasks in parallel with  1  tasks...
+All tasks processed
+Wait for log entry on storage node
+Single file upload completed - returning single result
+[step2] PASS uploaded delta B — tx 0x7e45f7edc278d7f9cad8f115933f521c2a6334d033993019e110e7307df8f31f, root 0xa1b44793796bae41e6fbcefab53076c322b7b662e119a29e5b1c01fc9edbcb11, 33681B plaintext / 33697B cipher, 14113ms, cost 0.001189537646948474 0G
+PASS: wiped local journal-mode state (deleted temp db file)
+PASS: eth_getLogs-resolved root hash matches latest delta (deltaB)
+Starting download to: /var/folders/m4/8977wlvx6jxcc9wy9vbvpjbm0000gn/T/c3-dl-1784950272420-3e16757ywcb.bin, proof: false
+Downloading single file with root hash: 0xa1b44793796bae41e6fbcefab53076c322b7b662e119a29e5b1c01fc9edbcb11
+Getting file locations for root hash: 0xa1b44793796bae41e6fbcefab53076c322b7b662e119a29e5b1c01fc9edbcb11
+Found 4 locations for 0xa1b44793796bae41e6fbcefab53076c322b7b662e119a29e5b1c01fc9edbcb11: [
+  'http://34.19.125.196:5678',
+  'http://34.169.28.106:5678',
+  'http://34.102.76.235:5678',
+  'http://34.133.200.179:5678'
+]
+Selected 2 of 4 nodes for 0xa1b44793796bae41e6fbcefab53076c322b7b662e119a29e5b1c01fc9edbcb11
+PASS: downloaded + verified + decrypted delta B (seq 1, prevRootHash 0x087913709e9441d6122b86547daaa5717952b18a4bd13c3585d31040ac8c7471)
+Starting download to: /var/folders/m4/8977wlvx6jxcc9wy9vbvpjbm0000gn/T/c3-dl-1784950274386-s180yctqubl.bin, proof: false
+Downloading single file with root hash: 0x087913709e9441d6122b86547daaa5717952b18a4bd13c3585d31040ac8c7471
+Getting file locations for root hash: 0x087913709e9441d6122b86547daaa5717952b18a4bd13c3585d31040ac8c7471
+Found 4 locations for 0x087913709e9441d6122b86547daaa5717952b18a4bd13c3585d31040ac8c7471: [
+  'http://34.102.76.235:5678',
+  'http://34.133.200.179:5678',
+  'http://34.83.53.209:5678',
+  'http://34.169.28.106:5678'
+]
+Selected 2 of 4 nodes for 0x087913709e9441d6122b86547daaa5717952b18a4bd13c3585d31040ac8c7471
+PASS: downloaded + verified + decrypted delta by prevRootHash chain link (seq 0)
+PASS: delta chain resolved in correct order [deltaA, deltaB] via prevRootHash
+PASS: replayed 60 vector ops + 60 history entries from 2 deltas (replay 268.2ms)
+[step2] post-restore search result IDs: [
+  [ 'd34233e6', 'd7369fa7', '6ae2a8d1', 'e1b24e68', '6cd2f2fc' ],
+  [ '6de7a41c', '4fa4a495', '19f631f4', 'd34233e6', '7c5761a6' ],
+  [ '17840e94', '807251cc', 'ec13da40', 'd34233e6', '5f385dff' ],
+  [ 'f6b6c904', 'c9b6d123', '6573f3e1', '05bcec03', '19f631f4' ],
+  [ 'c183c4dc', '82dd2394', 'ff26a8d4', 'edb619e8', 'e1b24e68' ]
+]
+PASS: STEP 2 search parity: identical IDs and scores before flush vs after journal replay
+
+=== SUMMARY ===
+balance before: 6.99128117241917149 0G
+balance after:  6.987799968749455958 0G
+total spend this run: 0.003481203669715532 0G across 3 flushes
+{
+  "balanceBefore": "6.99128117241917149",
+  "snapshot": {
+    "spotCheck": [
+      {
+        "query": "how was the undefined req.user error fixed",
+        "memory": "Fixed the undefined req.user crash with a JWT guard, fixed a Postgres pool leak and added indexes cutting /api/users latency from 800ms to 40ms, cleaned up the rebase conflict, and standardized API error responses."
+      },
+      {
+        "query": "database connection pool tuning and leaks",
+        "memory": "Can you review my connection pooling change?"
+      },
+      {
+        "query": "git rebase conflict resolution",
+        "memory": "How do I resolve a git rebase conflict in package-lock.json?"
+      }
+    ],
+    "memoriesAdded": 48,
+    "embeddingDim": 384,
+    "plaintextBytes": 181631,
+    "ciphertextBytes": 181647,
+    "encryptMs": 1.013249999999971,
+    "uploadMs": 16843.475709000002,
+    "flushMs": 16844.488959000002,
+    "costWei": "1127639441262879",
+    "restore": {
+      "pointerResolveMs": 1126.3243330000005,
+      "downloadMs": 2976.3577909999985,
+      "merkleVerifyMs": 16.271166999998968,
+      "decryptMs": 0.7340000000003783,
+      "replayMs": 190.088375000003,
+      "totalMs": 4309.775666000001
+    },
+    "parityPassed": true
+  },
+  "journal": {
+    "batchA": {
+      "memoriesAdded": 48,
+      "plaintextBytes": 135503,
+      "ciphertextBytes": 135519,
+      "encryptMs": 0.6758329999938724,
+      "uploadMs": 16074.516875000001,
+      "flushMs": 16075.192707999995,
+      "costWei": "1164026581504179"
+    },
+    "batchB": {
+      "memoriesAdded": 12,
+      "plaintextBytes": 33681,
+      "ciphertextBytes": 33697,
+      "encryptMs": 0.226583000003302,
+      "uploadMs": 14113.256792,
+      "flushMs": 14113.483375000003,
+      "costWei": "1189537646948474"
+    },
+    "restore": {
+      "pointerResolveMs": 1707.9224159999867,
+      "downloadMs": 3617.963457999984,
+      "merkleVerifyMs": 26.36270899999363,
+      "decryptMs": 1.1447920000064187,
+      "replayMs": 268.2232079999958,
+      "totalMs": 5621.616582999966,
+      "chainLength": 2
+    },
+    "parityPassed": true
+  },
+  "balanceAfter": "6.987799968749455958",
+  "totalCostWei": "3481203669715532",
+  "totalCostEth": "0.003481203669715532",
+  "flushLog": [
+    {
+      "label": "step1-checkpoint",
+      "rootHash": "0x4093fd93c631722e42e207545ece69bff36097fd8cde401729000366b4d7c94a",
+      "txHash": "0x60752123a68e67768cd481a9fb7f54dfcfafd4043542e540900f8fa583b5c02a",
+      "uploadMs": 16843.475709000002,
+      "costWei": "1127639441262879",
+      "bytes": 181647
+    },
+    {
+      "label": "step2-deltaA",
+      "rootHash": "0x087913709e9441d6122b86547daaa5717952b18a4bd13c3585d31040ac8c7471",
+      "txHash": "0x5e64b88cfc11293ba91a77dc4780a8ef6d1d351f8ce4db6bb7fae923a2bfda44",
+      "uploadMs": 16074.516875000001,
+      "costWei": "1164026581504179",
+      "bytes": 135519
+    },
+    {
+      "label": "step2-deltaB",
+      "rootHash": "0xa1b44793796bae41e6fbcefab53076c322b7b662e119a29e5b1c01fc9edbcb11",
+      "txHash": "0x7e45f7edc278d7f9cad8f115933f521c2a6334d033993019e110e7307df8f31f",
+      "uploadMs": 14113.256792,
+      "costWei": "1189537646948474",
+      "bytes": 33697
+    }
+  ]
+}
+
+=== ALL CHECKS PASSED ===

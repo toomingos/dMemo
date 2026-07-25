@@ -1,0 +1,95 @@
+{
+  "balanceBefore": "6.99128117241917149",
+  "snapshot": {
+    "spotCheck": [
+      {
+        "query": "how was the undefined req.user error fixed",
+        "memory": "Fixed the undefined req.user crash with a JWT guard, fixed a Postgres pool leak and added indexes cutting /api/users latency from 800ms to 40ms, cleaned up the rebase conflict, and standardized API error responses."
+      },
+      {
+        "query": "database connection pool tuning and leaks",
+        "memory": "Can you review my connection pooling change?"
+      },
+      {
+        "query": "git rebase conflict resolution",
+        "memory": "How do I resolve a git rebase conflict in package-lock.json?"
+      }
+    ],
+    "memoriesAdded": 48,
+    "embeddingDim": 384,
+    "plaintextBytes": 181631,
+    "ciphertextBytes": 181647,
+    "encryptMs": 1.013249999999971,
+    "uploadMs": 16843.475709000002,
+    "flushMs": 16844.488959000002,
+    "costWei": "1127639441262879",
+    "restore": {
+      "pointerResolveMs": 1126.3243330000005,
+      "downloadMs": 2976.3577909999985,
+      "merkleVerifyMs": 16.271166999998968,
+      "decryptMs": 0.7340000000003783,
+      "replayMs": 190.088375000003,
+      "totalMs": 4309.775666000001
+    },
+    "parityPassed": true
+  },
+  "journal": {
+    "batchA": {
+      "memoriesAdded": 48,
+      "plaintextBytes": 135503,
+      "ciphertextBytes": 135519,
+      "encryptMs": 0.6758329999938724,
+      "uploadMs": 16074.516875000001,
+      "flushMs": 16075.192707999995,
+      "costWei": "1164026581504179"
+    },
+    "batchB": {
+      "memoriesAdded": 12,
+      "plaintextBytes": 33681,
+      "ciphertextBytes": 33697,
+      "encryptMs": 0.226583000003302,
+      "uploadMs": 14113.256792,
+      "flushMs": 14113.483375000003,
+      "costWei": "1189537646948474"
+    },
+    "restore": {
+      "pointerResolveMs": 1707.9224159999867,
+      "downloadMs": 3617.963457999984,
+      "merkleVerifyMs": 26.36270899999363,
+      "decryptMs": 1.1447920000064187,
+      "replayMs": 268.2232079999958,
+      "totalMs": 5621.616582999966,
+      "chainLength": 2
+    },
+    "parityPassed": true
+  },
+  "balanceAfter": "6.987799968749455958",
+  "totalCostWei": "3481203669715532",
+  "totalCostEth": "0.003481203669715532",
+  "flushLog": [
+    {
+      "label": "step1-checkpoint",
+      "rootHash": "0x4093fd93c631722e42e207545ece69bff36097fd8cde401729000366b4d7c94a",
+      "txHash": "0x60752123a68e67768cd481a9fb7f54dfcfafd4043542e540900f8fa583b5c02a",
+      "uploadMs": 16843.475709000002,
+      "costWei": "1127639441262879",
+      "bytes": 181647
+    },
+    {
+      "label": "step2-deltaA",
+      "rootHash": "0x087913709e9441d6122b86547daaa5717952b18a4bd13c3585d31040ac8c7471",
+      "txHash": "0x5e64b88cfc11293ba91a77dc4780a8ef6d1d351f8ce4db6bb7fae923a2bfda44",
+      "uploadMs": 16074.516875000001,
+      "costWei": "1164026581504179",
+      "bytes": 135519
+    },
+    {
+      "label": "step2-deltaB",
+      "rootHash": "0xa1b44793796bae41e6fbcefab53076c322b7b662e119a29e5b1c01fc9edbcb11",
+      "txHash": "0x7e45f7edc278d7f9cad8f115933f521c2a6334d033993019e110e7307df8f31f",
+      "uploadMs": 14113.256792,
+      "costWei": "1189537646948474",
+      "bytes": 33697
+    }
+  ]
+}
