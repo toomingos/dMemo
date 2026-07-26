@@ -74,6 +74,32 @@ for (const pkgDir of PUBLISH_ORDER) {
 
   console.log(`--- ${pkg.name}@${pkg.version} (${pkgDir}) ---`);
 
+  // Resume guard. npm rejects re-publishing an existing name@version with a
+  // 403, so without this a run that dies partway (the common cause being a
+  // 2FA OTP expiring mid-sequence — an OTP is good for ~30s and this
+  // sequence includes a multi-MB upload) could never be retried: the retry
+  // would stop at the first already-published package and the release would
+  // be stranded half-done. Skipping what is verifiably already live makes
+  // the script safely re-runnable.
+  if (isLive) {
+    let alreadyPublished = false;
+    try {
+      const out = execFileSync('npm', ['view', `${pkg.name}@${pkg.version}`, 'version'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      alreadyPublished = out.trim() === pkg.version;
+    } catch {
+      // Non-zero exit means "not published" (404). Anything else that goes
+      // wrong here should not block a publish — fall through and let the
+      // real publish surface the error.
+    }
+    if (alreadyPublished) {
+      console.log(`[skip] ${pkg.name}@${pkg.version} is already on the registry.\n`);
+      continue;
+    }
+  }
+
   const publishArgs = ['publish', '--access', 'public', '--no-git-checks'];
   if (!isLive) publishArgs.push('--dry-run');
   if (otp) publishArgs.push('--otp', otp);
