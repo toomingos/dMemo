@@ -19,7 +19,7 @@ export const DEFAULT_RECALL_TIMEOUT_MS = 10_000;
 export const DEFAULT_TOP_K = 5;
 
 /** Same `~/.dmemo/config.json` every other dMemo host adapter reads (written
- * by `npx dmemo setup`; flat map of `DMEMO_*` env-var names). Without this,
+ * by `npx @dmemo/cli setup`; flat map of `DMEMO_*` env-var names). Without this,
  * OpenClaw would be the only host that needs the key pasted into its own
  * config or exported into its daemon's environment — the config block and
  * `DMEMO_PRIVATE_KEY` still win over it, in that order. Never throws:

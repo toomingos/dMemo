@@ -45,7 +45,7 @@ backend uses):
 `plugins.slots.memory` is exclusive — registering `"dmemo"` here takes over
 recall/capture from whatever memory plugin (if any) owned the slot before.
 
-`DMEMO_PRIVATE_KEY` — the easiest way to get this value is `npx dmemo
+`DMEMO_PRIVATE_KEY` — the easiest way to get this value is `npx @dmemo/cli
 setup`, which writes it to `~/.dmemo/config.json`; export it into the
 environment OpenClaw runs in, or paste the value directly (not
 recommended — prefer the env-var interpolation form above).

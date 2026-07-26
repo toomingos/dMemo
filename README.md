@@ -21,8 +21,8 @@ to your wallet's public key, and persisted as an append-only chain of blobs on
 ## Quickstart
 
 ```bash
-npx dmemo setup             # 0G mainnet (default)
-npx dmemo setup --testnet   # free, throwaway chain — evaluate without spending
+npx @dmemo/cli setup             # 0G mainnet (default)
+npx @dmemo/cli setup --testnet   # free, throwaway chain — evaluate without spending
 ```
 
 Generates (or imports) a wallet, writes `~/.dmemo/config.json`, offers to fund the account, and
@@ -30,10 +30,10 @@ installs the adapter for every supported host it detects. The memory leg needs n
 no API keys, and no accounts — just a funded wallet.
 
 **Funding.** Memory writes cost ~0.0012–0.003 0G each, so the account needs a small balance.
-`npx dmemo fund` (also offered by `setup`) handles every starting point from a local page: send
+`npx @dmemo/cli fund` (also offered by `setup`) handles every starting point from a local page: send
 from a wallet you already have, convert crypto you hold on Base / Arbitrum / Optimism / Polygon /
 BNB and more, or pay by card, Apple Pay, or Google Pay — that last one needs no wallet and no
-crypto at all. On `--testnet` it is the faucet instead. `npx dmemo balance` checks it any time.
+crypto at all. On `--testnet` it is the faucet instead. `npx @dmemo/cli balance` checks it any time.
 
 Re-running `setup` **keeps the wallet already on record** and just re-wires hosts — that key is
 the only thing that can decrypt your memories, so replacing it takes an explicit `--new-wallet`
@@ -94,7 +94,7 @@ agent turn ──▶ mem0 OSS (local extraction + local embeddings)
 | [`packages/opencode-plugin`](packages/opencode-plugin) | OpenCode plugin (every-turn recall, capture, compaction hook) |
 | [`packages/openclaw-plugin`](packages/openclaw-plugin) | OpenClaw memory-slot plugin (recall, capture, dream consolidation) |
 | [`packages/hermes-plugin`](packages/hermes-plugin) | Hermes `MemoryProvider` — native Python engine on the same blob spec, storage via a Node bridge |
-| [`packages/setup-cli`](packages/setup-cli) | `npx dmemo setup` onboarding CLI (`connect`, `fund`, `balance`) |
+| [`packages/setup-cli`](packages/setup-cli) | `npx @dmemo/cli setup` onboarding CLI (`connect`, `fund`, `balance`) |
 | [`packages/integration-tests`](packages/integration-tests) | Live-testnet integration suite (private) |
 
 ## Docs

@@ -205,7 +205,7 @@ async function fundingStep(
   log('small balance to be useful.\n');
 
   if (ctx.skipFunding) {
-    log(`Skipped (--skip-funding). Run \`npx dmemo fund\` when you are ready.\n`);
+    log(`Skipped (--skip-funding). Run \`npx @dmemo/cli fund\` when you are ready.\n`);
     if (network === 'testnet') {
       log(faucetInstructions(address));
       log('');
@@ -237,7 +237,7 @@ async function fundingStep(
     // No browser, no prompt, no blocking. `--yes` means "do not ask me
     // things", and opening a payment page unattended would be the single
     // most surprising thing this CLI could do.
-    log(`Not funded. Run \`npx dmemo fund\` to add ${CURRENCY_SYMBOL}`);
+    log(`Not funded. Run \`npx @dmemo/cli fund\` to add ${CURRENCY_SYMBOL}`);
     log(network === 'mainnet'
       ? '  (card, Apple Pay, crypto from another chain, or your own wallet).\n'
       : '  (testnet faucet).\n');
@@ -251,7 +251,7 @@ async function fundingStep(
   const wantsFunding = await promptYesNo('Fund it now?', true);
   log('');
   if (!wantsFunding) {
-    log('Skipped. Run `npx dmemo fund` any time; `npx dmemo balance` checks it.\n');
+    log('Skipped. Run `npx @dmemo/cli fund` any time; `npx @dmemo/cli balance` checks it.\n');
     if (network === 'testnet') {
       log(faucetInstructions(address));
       log('');
@@ -266,7 +266,7 @@ async function fundingStep(
     // payment provider — the three least reliable things in this flow. It
     // must never take the rest of setup down with it.
     log(`Funding did not complete: ${err instanceof Error ? err.message : String(err)}`);
-    log('Run `npx dmemo fund` to pick it back up — nothing else is affected.\n');
+    log('Run `npx @dmemo/cli fund` to pick it back up — nothing else is affected.\n');
   }
 }
 

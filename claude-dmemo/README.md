@@ -11,7 +11,7 @@ This repository is the Claude Code **plugin marketplace** for dMemo. The engine 
 The recommended path is the dMemo setup CLI, which creates or imports a wallet, writes your config, and installs the plugin for every coding agent it finds:
 
 ```bash
-npx dmemo setup
+npx @dmemo/cli setup
 ```
 
 To install just this plugin, from inside Claude Code:
@@ -32,7 +32,7 @@ claude plugin install dmemo@dmemo-plugins
 
 The plugin needs one thing: a wallet private key, which is both your identity and your decryption key.
 
-`npx dmemo setup` writes it to `~/.dmemo/config.json` (mode `0600`) and the plugin reads it from there. Alternatively, set it as the plugin's `privateKey` user config when installing.
+`npx @dmemo/cli setup` writes it to `~/.dmemo/config.json` (mode `0600`) and the plugin reads it from there. Alternatively, set it as the plugin's `privateKey` user config when installing.
 
 **Until a key is configured, the plugin does nothing.** Every hook fails open — no errors, no interruption, no memory. This is deliberate: a memory layer should never be able to break your session.
 

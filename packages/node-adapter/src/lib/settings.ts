@@ -15,7 +15,7 @@ export const DMEMO_NATIVE_DIR = path.join(DMEMO_HOME, 'native');
 export const DMEMO_LOG_PATH = path.join(DMEMO_HOME, 'hooks.log');
 
 /**
- * `~/.dmemo/config.json` (written by `npx dmemo setup`, T4.1 — not built by
+ * `~/.dmemo/config.json` (written by `npx @dmemo/cli setup`, T4.1 — not built by
  * this task) is a flat map of the exact env var names @dmemo/core's
  * `loadConfigFromEnv` reads (`DMEMO_PRIVATE_KEY`, `DMEMO_NETWORK`, ...).
  * Loading it here and merging into `process.env` (env wins if already set)

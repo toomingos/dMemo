@@ -43,7 +43,7 @@ thing to lose track of — but it means:
 - **There is no password reset.** There is no "forgot your key" flow.
   There is no customer support that can get your memories back.
 - **There is no custodian.** dMemo (the project) never sees, stores, or has
-  any way to reconstruct your private key. `npx dmemo setup` generates it
+  any way to reconstruct your private key. `npx @dmemo/cli setup` generates it
   locally or accepts one you paste in, writes it to `~/.dmemo/config.json`
   with file mode `0600`, and that is the only copy dMemo's tooling ever
   creates. If that file is lost and you didn't back up the key elsewhere,
@@ -62,7 +62,7 @@ seed phrase, if the memories stored under it matter to you.
 Because the key is irreplaceable, no dMemo command replaces one silently.
 This is a hard contract, covered by tests, not a best effort:
 
-- **Re-running `npx dmemo setup` keeps the wallet already on record.** It
+- **Re-running `npx @dmemo/cli setup` keeps the wallet already on record.** It
   does not mint a new one. Replacing takes an explicit `--new-wallet` or
   `--import-key`, *and* consent — an interactive `y/N`, or `--force` for
   unattended runs. Without either, an unattended run refuses and exits
@@ -75,7 +75,7 @@ This is a hard contract, covered by tests, not a best effort:
   silently discarded — a stray comma in a hand edit must not cost you a key.
 - **The config is written atomically** (temp file + `rename`), so an
   interrupted or crashed write cannot leave a truncated file.
-- **`npx dmemo connect` asks before it opens a browser**, but only when the
+- **`npx @dmemo/cli connect` asks before it opens a browser**, but only when the
   key on record is locally generated. A connect-derived account is
   reproducible forever from the same wallet + scope, so replacing one is
   undoable; a generated key exists nowhere but that file.

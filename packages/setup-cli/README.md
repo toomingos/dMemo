@@ -1,6 +1,6 @@
 # dmemo (setup CLI)
 
-`npx dmemo setup` — the onboarding wizard for dMemo: private, encrypted,
+`npx @dmemo/cli setup` — the onboarding wizard for dMemo: private, encrypted,
 portable memory for coding agents, backed by 0G Storage. One command wires up
 the memory leg end-to-end with **no sign-ins, no accounts, and no API keys**.
 The only browser step is funding, it is optional, and it is a page served from
@@ -45,21 +45,21 @@ your own machine on `127.0.0.1`.
 ## Usage
 
 ```bash
-npx dmemo setup                  # interactive wizard
-npx dmemo setup --yes            # non-interactive: generate a wallet, sensible defaults
-npx dmemo setup --import-key 0x… # import an existing key instead of generating one
-npx dmemo setup --testnet        # run the whole install against the free throwaway chain
-npx dmemo setup --skip-hosts     # wallet + config only, skip host wiring
-npx dmemo setup --skip-funding   # don't offer to fund; just print how to
-npx dmemo setup --check-balance  # report the balance out loud even when it's still zero
-npx dmemo fund                   # add 0G: card, another chain, or your own wallet
-npx dmemo balance                # check the configured wallet's balance any time
-npx dmemo --help                 # or -h, or `npx dmemo help` — from any position, always safe
-npx dmemo --version              # or -v
+npx @dmemo/cli setup                  # interactive wizard
+npx @dmemo/cli setup --yes            # non-interactive: generate a wallet, sensible defaults
+npx @dmemo/cli setup --import-key 0x… # import an existing key instead of generating one
+npx @dmemo/cli setup --testnet        # run the whole install against the free throwaway chain
+npx @dmemo/cli setup --skip-hosts     # wallet + config only, skip host wiring
+npx @dmemo/cli setup --skip-funding   # don't offer to fund; just print how to
+npx @dmemo/cli setup --check-balance  # report the balance out loud even when it's still zero
+npx @dmemo/cli fund                   # add 0G: card, another chain, or your own wallet
+npx @dmemo/cli balance                # check the configured wallet's balance any time
+npx @dmemo/cli --help                 # or -h, or `npx @dmemo/cli help` — from any position, always safe
+npx @dmemo/cli --version              # or -v
 ```
 
 `--help`/`-h` and `--version`/`-v` win outright no matter where they appear on
-the command line (e.g. `npx dmemo setup --help` prints help, it does not run
+the command line (e.g. `npx @dmemo/cli setup --help` prints help, it does not run
 the wizard) and never touch a wallet. An unknown command or an unrecognized
 flag (including a typo of a real one, like `--newwallet`) is a hard error —
 a message naming the offending token on stderr and a non-zero exit — never a
@@ -68,14 +68,14 @@ silent no-op that quietly runs a different command than the one you typed.
 ## Networks
 
 **Mainnet (0G Aristotle, chain 16661) is the default.** It is where writes are
-durable, so it is what a plain `npx dmemo setup` gives you.
+durable, so it is what a plain `npx @dmemo/cli setup` gives you.
 
 `--testnet` (or the longhand `--network testnet`) runs the whole install
 against 0G Galileo, chain 16602 — free, faucet-funded, and throwaway. It works
 on `setup`, `connect`, and `fund`.
 
 ```bash
-npx dmemo setup --testnet   # evaluate for free; memories live on a disposable chain
+npx @dmemo/cli setup --testnet   # evaluate for free; memories live on a disposable chain
 ```
 
 A network name is validated, not guessed: `--network mainet` is a hard error,
@@ -91,7 +91,7 @@ chain wrote it.
 ## Funding
 
 Memory writes cost roughly **0.0012–0.003 0G each**, paid on 0G mainnet, so the
-account needs a small balance. `npx dmemo fund` (also offered by `setup`) opens
+account needs a small balance. `npx @dmemo/cli fund` (also offered by `setup`) opens
 a local page covering every starting point:
 
 | You have | What the page offers |
@@ -102,10 +102,10 @@ a local page covering every starting point:
 | No wallet at all | Same card path — it needs no wallet and no crypto. |
 
 ```bash
-npx dmemo fund              # $25 prefilled
-npx dmemo fund --usd 50     # prefill a different amount (5–3000)
-npx dmemo fund --no-open    # print the URL instead of launching a browser
-npx dmemo balance           # check any time
+npx @dmemo/cli fund              # $25 prefilled
+npx @dmemo/cli fund --usd 50     # prefill a different amount (5–3000)
+npx @dmemo/cli fund --no-open    # print the URL instead of launching a browser
+npx @dmemo/cli balance           # check any time
 ```
 
 On **testnet** none of those rails exist (they do not reach chain 16602), so
@@ -141,8 +141,8 @@ So, following the same contract as `solana-keygen new`:
   one is undoable; a generated key exists nowhere but that file.
 
 ```bash
-npx dmemo setup --new-wallet          # mint a new wallet, asks before replacing
-npx dmemo setup --new-wallet --force  # ...without asking (still backs up)
+npx @dmemo/cli setup --new-wallet          # mint a new wallet, asks before replacing
+npx @dmemo/cli setup --new-wallet --force  # ...without asking (still backs up)
 ```
 
 If you replace a wallet by accident, the backup next to `config.json` is the

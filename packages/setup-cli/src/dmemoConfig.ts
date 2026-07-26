@@ -164,7 +164,7 @@ export function recoveryHint(existing: ExistingKeyInfo, backupPath: string | nul
     lines.push(
       `That account was derived from wallet ${existing.connectedWallet}` +
         `${existing.scope ? ` with scope "${existing.scope}"` : ''} — ` +
-        '`npx dmemo connect` with the same wallet and scope reproduces it exactly.'
+        '`npx @dmemo/cli connect` with the same wallet and scope reproduces it exactly.'
     );
   } else if (backupPath) {
     lines.push(

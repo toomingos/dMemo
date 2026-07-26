@@ -36,7 +36,7 @@ async function main(): Promise<number> {
     const config = readDmemoConfig();
     const address = typeof config?.DMEMO_ADDRESS === 'string' ? config.DMEMO_ADDRESS : undefined;
     if (!address) {
-      console.log('No wallet address on record. Run `npx dmemo setup` first.');
+      console.log('No wallet address on record. Run `npx @dmemo/cli setup` first.');
       return 1;
     }
     const network = (config?.DMEMO_NETWORK as 'testnet' | 'mainnet') ?? 'mainnet';

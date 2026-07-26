@@ -259,7 +259,7 @@ not require pixels — destination locked, CSP widened by `frame-src` alone, no 
 served markup. What is left is genuinely a human "does this look right", one tab, one minute:
 
 ```
-npx dmemo fund --usd 25        # then click "Pay by card"
+npx @dmemo/cli fund --usd 25        # then click "Pay by card"
 ```
 
 ---

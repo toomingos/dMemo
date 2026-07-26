@@ -26,7 +26,7 @@ dmemo-hermes-install        # copies the plugin into $HERMES_HOME/plugins/dmemo
 Then set your wallet key and enable the provider:
 
 ```bash
-npx dmemo connect          # derives the memory key from a wallet signature
+npx @dmemo/cli connect          # derives the memory key from a wallet signature
 ```
 
 ```yaml

@@ -42,3 +42,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+
+# Next.js build output (website/ lives on its own branch; its .gitignore
+# does not apply on main, and turbopack cache files exceed GitHub's 100MB limit)
+.next/

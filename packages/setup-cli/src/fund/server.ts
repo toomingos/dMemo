@@ -102,7 +102,7 @@ export async function runFundServer(opts: FundServerOptions): Promise<FundServer
     openBrowser: opts.openBrowser,
     log: opts.log,
     waitingMessage: 'Waiting for funds…',
-    invalidTokenMessage: 'Invalid or missing token. Re-run `npx dmemo fund`.',
+    invalidTokenMessage: 'Invalid or missing token. Re-run `npx @dmemo/cli fund`.',
     renderPage: (token) =>
       renderFundPage({
         token,

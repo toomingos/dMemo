@@ -2,7 +2,7 @@
 // Local dev installer — wires every host adapter to THIS checkout, so the
 // whole stack can be manually tested before anything is published.
 //
-// `packages/setup-cli` (`npx dmemo setup`) is the real end-user path, but it
+// `packages/setup-cli` (`npx @dmemo/cli setup`) is the real end-user path, but it
 // points three of the four hosts at npm/GitHub coordinates that do not exist
 // yet (`@dmemo/opencode-plugin`, `@dmemo/openclaw-plugin`,
 // `dmemo-ai/claude-dmemo`). This script substitutes local equivalents that

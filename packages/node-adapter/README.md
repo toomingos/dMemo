@@ -16,7 +16,7 @@ Codex distribution artifact actually shipped to end users.
   reads `~/.codex/hooks.json` directly. The `.cjs` scripts referenced by
   those hooks need to live at some stable path on disk — `packages/setup-cli`
   (`dmemo` on npm) vendors a copy of exactly the files Codex needs (see its
-  `scripts/vendor-codex-plugin.mjs`) precisely so an end user's `npx dmemo
+  `scripts/vendor-codex-plugin.mjs`) precisely so an end user's `npx @dmemo/cli
   setup` never needs this package or a live GitHub fetch.
 
 ## What it builds

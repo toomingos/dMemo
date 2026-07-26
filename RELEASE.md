@@ -3,8 +3,8 @@
 This is the exact sequence a human operator runs to actually publish dMemo.
 Nothing in this repo runs any of these steps automatically — `scripts/publish.mjs`
 defaults to a dry run and refuses to publish for real without two explicit
-flags (`--live --yes-i-am-sure`). No GitHub repo has been created and no npm
-publish has ever been executed as part of building this pipeline.
+flags (`--live --yes-i-am-sure`). Both GitHub repos now exist and the
+monorepo is pushed; the npm publish is the remaining live step.
 
 ## 0. Pre-flight (once)
 
@@ -17,25 +17,45 @@ publish has ever been executed as part of building this pipeline.
       publish is rejected outright. Five of the six packages are `@dmemo/*`.
       Org created 2026-07-26 at https://www.npmjs.com/org/create (Free plan
       — public packages only, which is what we want).
-- [ ] `npm whoami` — confirm you're logged in, and `npm org ls dmemo` —
-      confirm your account is a member of the `dmemo` org with publish
-      rights. `npm login` is interactive and cannot be run unattended.
-- [ ] Confirm 2FA/OTP is set up on the npm account if publishes require it
-      (pass `--otp=123456` to `scripts/publish.mjs` if so).
+- [x] Verified 2026-07-26: `npm whoami` → `toomingos`, `npm org ls dmemo`
+      → `toomingos - owner`. `npm login` is interactive and cannot be run
+      unattended.
+- [x] **2FA is enforced on this account.** A publish without an OTP fails
+      with `E403 ... Two-factor authentication or granular access token
+      with bypass 2fa enabled is required`. Pass `--otp=123456` to
+      `scripts/publish.mjs`. Caveat: an OTP is valid ~30s, and six
+      sequential publishes (including a 2.5 MB tarball) can outlive it — if
+      it expires mid-run the release lands partially, and those versions can
+      never be re-published. For unattended/CI runs use a granular access
+      token with "bypass 2FA" instead.
 - [x] **GitHub org: `dmemo-ai`** (decided 2026-07-26). Repos `dmemo-ai/dmemo`
       and `dmemo-ai/claude-dmemo`. This matches what every `package.json`
       `repository` field, `claude-dmemo/plugin/.claude-plugin/plugin.json`,
       and `MARKETPLACE_SOURCE` in
       `packages/setup-cli/src/installers/claudeCode.ts` already hardcode —
-      audited 2026-07-26, no grep-replace needed. The org does not exist yet;
-      creating it is step 1.
+      audited 2026-07-26, no grep-replace needed. Org created; see step 1.
 - [x] **Release version: `0.1.0` for all six npm packages and
       `plugin.json`** (decided 2026-07-26). `packages/setup-cli` was at
       `0.2.0` and is moved down to match; nothing is published, so no
       version is being reused.
-- [ ] Registry names confirmed free as of 2026-07-26 — `dmemo` and every
-      `@dmemo/*` return 404 on npm, `dmemo-hermes` returns 404 on PyPI.
-      Re-check right before publishing if much time has passed.
+- [x] **The bare name `dmemo` is NOT available and never was.** An earlier
+      check here claimed it was free because `npm view dmemo` returns 404.
+      That is a false negative: `npm view` returns the same 404 for "never
+      existed" and for "published once, then unpublished". The raw registry
+      document tells the truth —
+      `curl -s https://registry.npmjs.org/dmemo | jq '.time'` shows
+      `1.0.0` published 2018-05-28 and `unpublished` 2018-06-11. npm
+      permanently reserves unpublished names to prevent takeover attacks, so
+      nobody can claim it without npm support intervening.
+      **Always verify availability against the raw registry document, not
+      `npm view`.**
+- [x] Consequence: the CLI publishes as **`@dmemo/cli`** (`npx @dmemo/cli
+      setup`), decided 2026-07-26. The `bin` name is unchanged — it is still
+      `dmemo`, so a global install gives you `dmemo setup` exactly as
+      before; only the package spec in the `npx` one-liner differs.
+- [x] The five `@dmemo/*` names and `@dmemo/cli` are genuinely free
+      (raw-registry 404, no `unpublished` key). `dmemo-hermes` returns 404
+      on PyPI. Re-check right before publishing if much time has passed.
 
 ## 1. Create and push the main GitHub repo
 
@@ -53,32 +73,39 @@ publish has ever been executed as part of building this pipeline.
       the *old* `full_name` with a 202; re-query `repos/dmemo-ai/dmemo` to
       confirm rather than trusting the response body.
 - [x] Local `origin` re-pointed to `https://github.com/dmemo-ai/dmemo.git`.
-- [ ] Push the pending working-tree changes (installer rewrites, RELEASE.md,
-      `.gitignore` fix, `claude-dmemo/` LICENSE+README). Nothing is pushed
-      yet — the repo on GitHub is still at commit `5c0d3b7`.
+- [x] Working-tree changes committed and pushed 2026-07-26 (installer
+      rewrites, `.gitignore` fix, `claude-dmemo/` LICENSE+README, the
+      `@dmemo/cli` rename).
 - [ ] Confirm `LICENSE`, `TASKS.md`, `packages/*` all land in the repo as
       expected (nothing in `.gitignore` should exclude source you need).
 
 ## 2. Create and push the Claude Code marketplace repo
 
-- [x] `github.com/dmemo-ai/claude-dmemo` created 2026-07-26, public, and
-      currently **empty** (no commits pushed yet). Matches
+- [x] `github.com/dmemo-ai/claude-dmemo` created 2026-07-26, public.
+      Matches
       `MARKETPLACE_SOURCE` in `packages/setup-cli/src/installers/claudeCode.ts`
       and `homepage`/`repository` in
       `claude-dmemo/plugin/.claude-plugin/plugin.json`.
-- [ ] `cd claude-dmemo && git init`, commit, push. This repo's layout is
+- [x] **Done 2026-07-26** — pushed as commit `b9dd0bd`, 19 files, zero
+      `node_modules`. Note this was done from a *copy* of the directory in a
+      scratch dir, deliberately: running `git init` inside `claude-dmemo/`
+      would embed a nested `.git` inside the monorepo's tracked tree. Future
+      updates need the same copy-and-push dance, or a sync script.
+      This repo's layout is
       already correct and verified (see step 5 below) — it just needs to
       exist on GitHub and be public so `claude plugin marketplace add
       dmemo-ai/claude-dmemo` can clone it. **Claude Code requires
       `.claude-plugin/marketplace.json` at the repo ROOT**, which is why this
       has to be its own repo and cannot be resolved as a subdirectory of the
       monorepo.
-- [ ] Rebuild the vendored hook scripts fresh right before this push:
+- [x] Rebuilt 2026-07-26 before the push — output was byte-identical to
+      what was already committed, confirming the build is deterministic.
+      Command:
       `pnpm --filter @dmemo/node-adapter run build` (writes into
       `claude-dmemo/plugin/scripts/`) — do this from the monorepo root so
       the shipped `.cjs` bundles reflect the exact code being released, not
       a stale build.
-- [ ] Confirm `plugin/scripts/node_modules` is NOT in the commit. It is a
+- [x] Confirmed absent from commit `b9dd0bd`. It is a
       symlink the plugin regenerates at runtime pointing at the builder's
       own machine (`native-bootstrap.ts`, `linkNodeModulesShim`), and it was
       committed by accident once already — the root `.gitignore`'s
@@ -94,7 +121,9 @@ publish has ever been executed as part of building this pipeline.
 
 ## 3. npm login
 
-- [ ] `npm login` (interactively) or `npm config set //registry.npmjs.org/:_authToken=<token>`
+- [x] Logged in 2026-07-26 as `toomingos`, confirmed **owner** of the
+      `dmemo` npm org via `npm org ls dmemo`. Alternative for CI:
+      `npm config set //registry.npmjs.org/:_authToken=<token>`
       in CI. `scripts/publish.mjs` shells out to `pnpm publish`, which uses
       whatever npm auth is already configured in the environment — it does
       not prompt for credentials itself.
@@ -109,9 +138,9 @@ node scripts/publish.mjs
 - [x] Confirm all 6 packages print `(dry-run)` tarball listings with no
       errors, in this order: `@dmemo/blob-spec` → `@dmemo/core` →
       `@dmemo/sdk-wrappers` → `@dmemo/opencode-plugin` →
-      `@dmemo/openclaw-plugin` → `dmemo` (the setup-cli package, published
-      as bare `dmemo` per its `package.json` `name` field, not
-      `@dmemo/setup-cli`). **Verified 2026-07-26**: exit 0, all six at
+      `@dmemo/openclaw-plugin` → `@dmemo/cli` (the setup-cli package —
+      published under the `@dmemo/cli` name, not `@dmemo/setup-cli` and not
+      bare `dmemo`, which is unavailable; see step 0). **Verified 2026-07-26**: exit 0, all six at
       `0.1.0`, correct order, no errors.
 - [x] Spot-check each tarball's file list for the files you expect (`dist/`,
       `README.md`, `LICENSE`, plus `SPEC.md` for blob-spec,
@@ -161,13 +190,13 @@ node scripts/publish.mjs --live --yes-i-am-sure
 - [ ] After it finishes, `npm view @dmemo/blob-spec version`, `npm view
       @dmemo/core version`, `npm view @dmemo/sdk-wrappers version`, `npm
       view @dmemo/opencode-plugin version`, `npm view @dmemo/openclaw-plugin
-      version`, `npm view dmemo version` — confirm all six now resolve on
+      version`, `npm view @dmemo/cli version` — confirm all six now resolve on
       the registry.
 
 ## 7. Smoke test the real, published thing
 
 - [ ] In a throwaway directory (NOT this repo), run
-      `npx dmemo@0.1.0 setup` for real, with a real (freshly generated or
+      `npx @dmemo/cli@0.1.0 setup` for real, with a real (freshly generated or
       test) wallet, against testnet. Confirm it installs cleanly end to
       end. This is the only step that can't be fully verified by dry runs —
       it depends on the actual npm registry and a real `npx` resolution.
@@ -190,5 +219,5 @@ node scripts/publish.mjs --live --yes-i-am-sure
   on purpose (no credentials exist in this environment to do it safely).
 - npm login/auth token provisioning.
 - The `pc.0g.ai` inference-leg sign-in flow (T4.1 accepted gap) — this is
-  printed as instructions to the end user by `npx dmemo setup`, not
+  printed as instructions to the end user by `npx @dmemo/cli setup`, not
   something the release pipeline touches.

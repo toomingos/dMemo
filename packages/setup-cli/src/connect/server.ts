@@ -65,7 +65,7 @@ export async function runConnectServer(opts: ConnectServerOptions): Promise<Conn
     openBrowser: opts.openBrowser,
     log: opts.log,
     waitingMessage: 'Waiting for your wallet…',
-    invalidTokenMessage: 'Invalid or missing token. Re-run `npx dmemo connect`.',
+    invalidTokenMessage: 'Invalid or missing token. Re-run `npx @dmemo/cli connect`.',
     renderPage: (token) =>
       renderConnectPage({
         token,

@@ -81,7 +81,7 @@ export async function runFund(opts: FundOptions = {}): Promise<FundResult> {
   const rawAddress =
     opts.address ?? (typeof config?.DMEMO_ADDRESS === 'string' ? config.DMEMO_ADDRESS : '');
   if (!rawAddress) {
-    throw new Error('No wallet address on record. Run `npx dmemo setup` or `npx dmemo connect` first.');
+    throw new Error('No wallet address on record. Run `npx @dmemo/cli setup` or `npx @dmemo/cli connect` first.');
   }
 
   // Hard-fail rather than proceed. Everything downstream — the widget's
@@ -96,7 +96,7 @@ export async function runFund(opts: FundOptions = {}): Promise<FundResult> {
     throw new Error(
       `The address on record is not a valid Ethereum address: ${rawAddress}\n` +
         'Refusing to open a funding flow that could send funds nowhere. Check\n' +
-        'DMEMO_ADDRESS in ~/.dmemo/config.json, or re-run `npx dmemo connect`.'
+        'DMEMO_ADDRESS in ~/.dmemo/config.json, or re-run `npx @dmemo/cli connect`.'
     );
   }
 
@@ -187,7 +187,7 @@ export async function runFund(opts: FundOptions = {}): Promise<FundResult> {
   } else if (result.skipped) {
     log('Funding skipped — the account is still empty.');
     log(`  Send ${CURRENCY_SYMBOL} to ${address} on ${chainNameFor(network)},`);
-    log('  or run `npx dmemo fund` again. `npx dmemo balance` checks it any time.');
+    log('  or run `npx @dmemo/cli fund` again. `npx @dmemo/cli balance` checks it any time.');
     if (network === 'testnet') {
       log('');
       log(faucetInstructions(address));
@@ -195,7 +195,7 @@ export async function runFund(opts: FundOptions = {}): Promise<FundResult> {
   } else {
     log('No funds arrived yet.');
     log(`  If a card or cross-chain purchase is still settling it will land at ${address}`);
-    log('  on its own — check with `npx dmemo balance`.');
+    log('  on its own — check with `npx @dmemo/cli balance`.');
   }
   log('');
 

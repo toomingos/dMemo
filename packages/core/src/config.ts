@@ -140,7 +140,7 @@ export class ConfigNotFoundError extends MissingConfigError {
     this.configPath = configPath;
     this.message =
       `dMemo is not configured: no DMEMO_PRIVATE_KEY in the environment, and no config file at ` +
-      `${configPath}. Run \`npx dmemo setup\` (or \`dmemo connect\`) to configure a wallet.`;
+      `${configPath}. Run \`npx @dmemo/cli setup\` (or \`dmemo connect\`) to configure a wallet.`;
   }
 }
 

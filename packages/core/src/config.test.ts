@@ -109,7 +109,7 @@ test('loadDmemoConfig: file fills in fields env does not set, alongside an env-s
   assert.equal(config.network, 'mainnet', 'network not set in env falls back to the file');
 });
 
-test('loadDmemoConfig: neither env nor file configured -> ConfigNotFoundError names the path and points at `dmemo setup`', () => {
+test('loadDmemoConfig: neither env nor file configured -> ConfigNotFoundError names the path and points at the setup command', () => {
   const env = scratchEnv();
   assert.throws(
     () => loadDmemoConfig(env),
@@ -118,7 +118,11 @@ test('loadDmemoConfig: neither env nor file configured -> ConfigNotFoundError na
       assert.ok(err instanceof MissingConfigError, 'must still satisfy existing instanceof MissingConfigError checks');
       assert.equal(err.configPath, dmemoConfigPath(env));
       assert.ok(err.message.includes(dmemoConfigPath(env)), 'error must name the file it looked for');
-      assert.ok(err.message.includes('dmemo setup'), 'error must tell the user how to fix it');
+      // The published CLI is `@dmemo/cli`, not bare `dmemo` — that name was
+      // unpublished on npm in 2018 and is permanently reserved. Assert the
+      // real invocation, so this test fails if the message drifts back to a
+      // command a user cannot actually run.
+      assert.ok(err.message.includes('npx @dmemo/cli setup'), 'error must tell the user how to fix it');
       return true;
     }
   );

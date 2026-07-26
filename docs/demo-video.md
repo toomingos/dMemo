@@ -19,11 +19,11 @@ Ease of install is the star of act one.
 
 ### The install command on camera
 
-- **If published to npm** (best): `npx dmemo setup`
+- **If published to npm** (best): `npx @dmemo/cli setup`
 - **If not yet published**: pack it locally first, off camera:
   `cd packages/setup-cli && npm pack --pack-destination ~/Desktop` — then on
   camera run `npx ~/Desktop/dmemo-0.1.0.tgz setup`. Same code, honest framing
-  ("this ships as npx dmemo setup").
+  ("this ships as npx @dmemo/cli setup").
 
 To make the host-detection moment pop, have at least Claude Code installed (it
 will be) so setup visibly finds and wires it. `--check-balance` makes the faucet
@@ -35,7 +35,7 @@ and use `--import-key` off camera in rehearsal to learn the prompt rhythm.
 | Time | Shot | What's on screen |
 |---|---|---|
 | 0:00–0:20 | Hook | README top: "Private, decentralized, plug-and-play memory" |
-| 0:20–1:20 | **Act 1 — Install** | Terminal: `npx dmemo setup`, prompts, host detection |
+| 0:20–1:20 | **Act 1 — Install** | Terminal: `npx @dmemo/cli setup`, prompts, host detection |
 | 1:20–1:45 | Act 2 — It just works | Claude Code (or any host) opens; memory adapter active |
 | 1:45–2:55 | Act 3 — X-ray (`pnpm demo`) | Terminal: encrypt → flush → ciphertext proof → restore |
 | 2:55–3:15 | Numbers + honesty | `docs/benchmarks.md` table, flash `docs/disclosure.md` |

@@ -87,7 +87,7 @@ def load_config(env: Optional[Dict[str, str]] = None) -> DmemoConfig:
     if not private_key:
         raise ConfigNotFoundError(
             "dMemo is not configured: no DMEMO_PRIVATE_KEY in the environment, and no config file at "
-            f"{dmemo_config_path()}. Run `npx dmemo setup` (or `dmemo connect`) to configure a wallet."
+            f"{dmemo_config_path()}. Run `npx @dmemo/cli setup` (or `dmemo connect`) to configure a wallet."
         )
 
     network = env.get("DMEMO_NETWORK") or "testnet"

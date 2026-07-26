@@ -749,7 +749,7 @@ human checklist (npm org, GitHub repos for monorepo + `claude-dmemo`, `npm login
   manual `plugins.slots.memory` instructions — config schema not confirmed solidly enough to
   auto-edit a user's real config.
 
-### T4.1 — `npx dmemo setup` script
+### T4.1 — `npx @dmemo/cli setup` script
 Steps (minimum-friction, in order): generate or import wallet → print faucet link (testnet) /
 funding instructions → write `~/.dmemo/config` (network, key storage) → per-host install
 (detect Claude Code / OpenCode / OpenClaw / Codex; run the respective installer from Phase 3) →

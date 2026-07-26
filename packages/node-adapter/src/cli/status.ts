@@ -7,7 +7,7 @@ import { withSession } from '../lib/dmemo.js';
 async function main(): Promise<void> {
   const env = loadDmemoEnv();
   if (!isConfigured(env)) {
-    console.log('dMemo: not configured. Set DMEMO_PRIVATE_KEY (see `npx dmemo setup`).');
+    console.log('dMemo: not configured. Set DMEMO_PRIVATE_KEY (see `npx @dmemo/cli setup`).');
     return;
   }
 

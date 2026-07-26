@@ -55,7 +55,7 @@ def main(argv: list | None = None) -> int:
     print(f"  1. enable it in {home / 'config.yaml'}:")
     print("       memory:\n         provider: dmemo")
     print("       plugins:\n         enabled: [dmemo]")
-    print("  2. set DMEMO_PRIVATE_KEY (or run `npx dmemo connect`)")
+    print("  2. set DMEMO_PRIVATE_KEY (or run `npx @dmemo/cli connect`)")
     return 0
 
 

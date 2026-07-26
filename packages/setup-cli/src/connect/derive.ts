@@ -134,7 +134,7 @@ export function verifyAndDerive(
       'This wallet does not produce stable signatures: signing the same message ' +
         'twice gave two different results, so your memory key could not be ' +
         'recovered on another machine. Use a different wallet, or run ' +
-        '`npx dmemo setup` for a locally generated account instead.'
+        '`npx @dmemo/cli setup` for a locally generated account instead.'
     );
   }
 
