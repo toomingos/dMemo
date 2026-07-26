@@ -110,8 +110,13 @@ export function findLocalPluginDir(startDir: string = __dirname): string | null 
 }
 
 function runInstall(spec: string, env: NodeJS.ProcessEnv): string {
+  // stderr is captured, not inherited. Left to its default it goes straight
+  // to our stderr, which dumped the child's bare ANSI resets into the middle
+  // of setup's transcript. Capturing loses nothing: execFileSync appends
+  // stderr to the thrown error's message, which is what the caller reports.
   return execFileSync('opencode', ['plugin', spec, '--global', '--force'], {
     encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
     env,
   });
 }

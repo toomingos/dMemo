@@ -67,12 +67,13 @@ export function installClaudeCode(env: NodeJS.ProcessEnv = process.env): ClaudeC
     attempted = true;
     const add = execFileSync('claude', ['plugin', 'marketplace', 'add', MARKETPLACE_SOURCE], {
       encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
       env,
     });
     const install = execFileSync(
       'claude',
       ['plugin', 'install', `${PLUGIN_ID}@${MARKETPLACE_NAME}`],
-      { encoding: 'utf8', env }
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env }
     );
     output = `${add}\n${install}`;
     succeeded = true;

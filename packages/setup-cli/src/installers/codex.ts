@@ -67,6 +67,7 @@ export function installCodex(env: NodeJS.ProcessEnv = process.env): CodexInstall
   const stdout = execFileSync('node', [installerPath], {
     env: { ...env, CODEX_HOME: codexHomeDir },
     encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
 
   return {
@@ -86,5 +87,6 @@ export function uninstallCodex(env: NodeJS.ProcessEnv = process.env): string {
   return execFileSync('node', [installerPath, '--uninstall'], {
     env: { ...env, CODEX_HOME: codexHomeDir },
     encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
 }

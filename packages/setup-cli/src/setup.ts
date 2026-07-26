@@ -41,6 +41,24 @@ import {
 } from './dmemoConfig.js';
 import { installDetectedHosts, type InstalledHosts } from './installHosts.js';
 import { promptText, promptYesNo, promptSecret } from './prompt.js';
+import {
+  amber,
+  bold,
+  dim,
+  indent,
+  lime,
+  outcome,
+  red,
+  status,
+  step,
+  symbols,
+  tildify,
+  wrap,
+} from './theme.js';
+
+/** Steps the user is walked through, in order. Only used for the `n/5`
+ * counter — the step bodies live inline in `runSetup`. */
+const TOTAL_STEPS = 5;
 
 export interface SetupOptions {
   env?: NodeJS.ProcessEnv;
@@ -78,22 +96,20 @@ export interface SetupResult {
   backupPath: string | null;
 }
 
+// A numbered procedure whose indentation carries meaning, so this one stays
+// hand-shaped rather than going through `wrap()`.
 const INFERENCE_INSTRUCTIONS = [
-  '',
-  'Optional: private LLM inference via the 0G Compute Router',
-  '(separate from the memory leg above; skip this if you only want memory).',
-  '',
-  '1. Open https://pc.0g.ai and sign in with the SAME wallet address printed',
-  '   above (interactive web step — this cannot be scripted; there is no',
-  '   documented headless first-credential mint as of 2026-07-25).',
-  '2. Mint a Router API key (starts with "sk-").',
-  '3. Export it as ZEROG_API_KEY, or add it to ~/.dmemo/config.json under',
-  '   the same key name.',
-  '4. See each host adapter README for how to point that host\'s chat calls',
-  '   at the Router (Claude Code: ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN;',
-  '   OpenCode: opencode.json "provider" entry; OpenClaw: models.providers).',
-  '   Codex has no Router inference leg (no /v1/responses endpoint) —',
-  '   memory-only, by design.',
+  '  1. Open https://pc.0g.ai and sign in with the SAME wallet address',
+  '     printed above (interactive web step — this cannot be scripted;',
+  '     there is no documented headless first-credential mint).',
+  '  2. Mint a Router API key (starts with "sk-").',
+  '  3. Export it as ZEROG_API_KEY, or add it to ~/.dmemo/config.json',
+  '     under the same key name.',
+  '  4. See each host adapter README for how to point that host\'s chat',
+  '     calls at the Router (Claude Code: ANTHROPIC_BASE_URL and',
+  '     ANTHROPIC_AUTH_TOKEN; OpenCode: opencode.json "provider" entry;',
+  '     OpenClaw: models.providers). Codex has no Router inference leg',
+  '     (no /v1/responses endpoint) — memory-only, by design.',
 ].join('\n');
 
 export async function runSetup(opts: SetupOptions = {}): Promise<SetupResult> {
@@ -101,7 +117,9 @@ export async function runSetup(opts: SetupOptions = {}): Promise<SetupResult> {
   const log = opts.log ?? ((line: string) => console.log(line));
   const nonInteractive = Boolean(opts.yes) || !process.stdin.isTTY;
 
-  log('dMemo setup — private, encrypted, portable memory backed by 0G Storage\n');
+  const started = Date.now();
+
+  log(`${lime(symbols().mark)} ${bold('dMemo')} ${dim('private, encrypted, portable memory on 0G Storage')}\n`);
 
   // --- Step 1: wallet ---------------------------------------------------
   // Read what is already on record BEFORE doing anything, so a re-run never
@@ -122,23 +140,26 @@ export async function runSetup(opts: SetupOptions = {}): Promise<SetupResult> {
 
   let wallet: WalletResult | null = null;
 
+  log(step(1, TOTAL_STEPS, 'Wallet'));
+
   if (existing && !wantsNewKey) {
-    log(`Wallet already configured: ${existing.address ?? '<unreadable key>'} (${existing.source}).`);
-    log('Keeping it — re-running setup never replaces a wallet.');
-    log('To replace it deliberately: `dmemo setup --new-wallet`, or');
-    log('`dmemo setup --import-key <hex>`.\n');
+    log(status('ok', `kept ${bold(existing.address ?? '<unreadable key>')}`, `(${existing.source})`));
+    log(wrap('Keeping it — re-running setup never replaces a wallet. To replace it deliberately: `dmemo setup --new-wallet`, or `dmemo setup --import-key <hex>`.', 4));
+    log('');
   } else {
     wallet = await obtainWallet(opts, nonInteractive);
 
     if (existing && existing.address?.toLowerCase() === wallet.address.toLowerCase()) {
       // Imported the key that is already configured — not a replacement at
       // all, so no gate and nothing to back up.
-      log(`Wallet ${wallet.address} is already the configured one — nothing to replace.\n`);
+      log(status('ok', `${bold(wallet.address)} is already the configured one`, '— nothing to replace'));
+      log('');
     } else if (existing) {
       await confirmReplacement(existing, wallet.address, { nonInteractive, force: opts.force, log });
     } else {
-      log(`Wallet ${wallet.generated ? 'generated' : 'imported'}. Address: ${wallet.address}`);
-      log('(The private key is never printed — it is written directly to ~/.dmemo/config.json, mode 0600.)\n');
+      log(status('ok', `${wallet.generated ? 'generated' : 'imported'} ${bold(wallet.address)}`));
+      log(dim(wrap('the only key that can decrypt your memory — never printed, written straight to ~/.dmemo/config.json at mode 0600', 4)));
+      log('');
     }
   }
 
@@ -162,26 +183,111 @@ export async function runSetup(opts: SetupOptions = {}): Promise<SetupResult> {
     // Only ever true on the path that already passed the consent gate above.
     { allowKeyReplacement: Boolean(wallet && existing) }
   );
-  log(`Wrote ${configPath} (mode 0600).\n`);
+  log(step(2, TOTAL_STEPS, 'Config'));
+  log(status('ok', `wrote ${bold(tildify(configPath, env))}`, 'mode 0600'));
   if (backupPath && existing) {
-    log(recoveryHint(existing, backupPath));
-    log('');
+    // The backup path stays untildified: it is the one string a user may need
+    // to paste verbatim into `cp`, and this is the only place it is printed.
+    log(wrap(recoveryHint(existing, backupPath), 4));
   }
+  log('');
 
   // --- Step 3: funding -----------------------------------------------------
-  await fundingStep(address, network, { ...opts, nonInteractive, log });
+  log(step(3, TOTAL_STEPS, 'Funding'));
+  const funding = await fundingStep(address, network, { ...opts, nonInteractive, log });
 
   // --- Step 4: per-host install -------------------------------------------
+  log(step(4, TOTAL_STEPS, 'Agents'));
   let hosts: SetupResult['hosts'] = {};
-  if (!opts.skipHosts) {
+  if (opts.skipHosts) {
+    log(status('skip', 'skipped', '(--skip-hosts)'));
+  } else {
     hosts = installDetectedHosts(env, log);
-    log('');
   }
+  log('');
 
   // --- Step 5: optional inference leg -------------------------------------
-  log(INFERENCE_INSTRUCTIONS);
+  log(step(5, TOTAL_STEPS, 'Inference'));
+  log(status('skip', 'optional', '— private LLM via the 0G Compute Router'));
+  log(dim(wrap('Separate from the memory leg above; skip this entirely if you only want memory.', 4)));
+  log('');
+  log(dim(indent(INFERENCE_INSTRUCTIONS, 2)));
+  log('');
+
+  // --- Summary -------------------------------------------------------------
+  // Last, deliberately. The inference block above is the step most users skip,
+  // and it used to be the final thing on screen.
+  printSummary({ address, network, hosts, funding, skipHosts: Boolean(opts.skipHosts), started, log });
 
   return { address, network, configPath, hosts, walletReused: wallet === null, backupPath };
+}
+
+interface FundingOutcome {
+  funded: boolean;
+  balanceLabel: string | null;
+}
+
+/** Detected-and-wired vs detected-but-failed, derived from what the installers
+ * returned so the summary cannot disagree with the step-4 lines above it. */
+function hostTally(hosts: InstalledHosts): { wired: number; detected: number } {
+  const results = [
+    hosts.claudeCode ? Boolean(hosts.claudeCode.succeeded) : null,
+    hosts.codex ? !('error' in hosts.codex) : null,
+    hosts.opencode ? Boolean(hosts.opencode.succeeded) : null,
+    hosts.openclaw ? Boolean(hosts.openclaw.succeeded) : null,
+  ].filter((r): r is boolean => r !== null);
+
+  return { wired: results.filter(Boolean).length, detected: results.length };
+}
+
+/**
+ * The closing block. Its whole job is to answer, without scrolling: did this
+ * work, what is my account, can it actually write yet, and what do I run next.
+ */
+function printSummary(ctx: {
+  address: string;
+  network: NetworkName;
+  hosts: InstalledHosts;
+  funding: FundingOutcome;
+  skipHosts: boolean;
+  started: number;
+  log: (line: string) => void;
+}): void {
+  const { log, funding } = ctx;
+  const { wired, detected } = hostTally(ctx.hosts);
+  const elapsed = `${((Date.now() - ctx.started) / 1000).toFixed(1)}s`;
+
+  const agents = ctx.skipHosts
+    ? 'agents skipped'
+    : detected === 0
+      ? 'no agents detected'
+      : `${wired} of ${detected} agents wired`;
+
+  log(outcome('Ready', `${agents}  ${symbols().bullet}  ${elapsed}`));
+  log('');
+  log(`  ${dim('account')}   ${bold(ctx.address)}`);
+  log(`  ${dim('network')}   ${chainNameFor(ctx.network)} ${dim(`(chain ${chainIdFor(ctx.network)})`)}`);
+
+  if (funding.funded) {
+    log(`  ${dim('balance')}   ${lime(`${funding.balanceLabel} ${CURRENCY_SYMBOL}`)}`);
+  } else {
+    const label = funding.balanceLabel ?? '0.0';
+    log(`  ${dim('balance')}   ${amber(`${label} ${CURRENCY_SYMBOL}`)} ${dim('— fund it before your first write')}`);
+  }
+
+  log('');
+  const next: Array<[string, string]> = [];
+  if (!funding.funded) next.push(['npx @dmemo/cli fund', 'add 0G']);
+  next.push(['npx @dmemo/cli balance', 'check the balance']);
+  if (!ctx.skipHosts && detected > 0 && wired < detected) {
+    next.push(['npx @dmemo/cli setup', 're-run to retry the agents above']);
+  }
+
+  const pad = Math.max(...next.map(([cmd]) => cmd.length));
+  next.forEach(([cmd, why], i) => {
+    log(`  ${dim(i === 0 ? 'next' : '    ')}  ${lime(cmd.padEnd(pad))}  ${dim(why)}`);
+  });
+  log('');
 }
 
 /**
@@ -197,76 +303,86 @@ async function fundingStep(
   address: string,
   network: NetworkName,
   ctx: SetupOptions & { nonInteractive: boolean; log: (line: string) => void }
-): Promise<void> {
+): Promise<FundingOutcome> {
   const { log, nonInteractive } = ctx;
 
-  log(`Funding — memory writes cost ~${COST_PER_WRITE_0G_LOW}–${COST_PER_WRITE_0G_HIGH} ${CURRENCY_SYMBOL} each`);
-  log(`on ${chainNameFor(network)} (chain ${chainIdFor(network)}), so this account needs a`);
-  log('small balance to be useful.\n');
+  /**
+   * The one instruction for "you still need to put money in this account".
+   * On testnet that is the faucet and nothing else — printing `dmemo fund`
+   * *and* a four-step faucet procedure gave two different answers to the
+   * same question.
+   */
+  const howToFund = (): void => {
+    if (network === 'testnet') {
+      log(dim(indent(faucetInstructions(address).trim(), 4)));
+      return;
+    }
+    log(dim(wrap(`Run \`npx @dmemo/cli fund\` to add ${CURRENCY_SYMBOL} — card, Apple Pay, crypto from another chain, or a wallet you already have.`, 4)));
+  };
+
+  const costNote = `writes cost ~${COST_PER_WRITE_0G_LOW}–${COST_PER_WRITE_0G_HIGH} ${CURRENCY_SYMBOL} each`;
 
   if (ctx.skipFunding) {
-    log(`Skipped (--skip-funding). Run \`npx @dmemo/cli fund\` when you are ready.\n`);
-    if (network === 'testnet') {
-      log(faucetInstructions(address));
-      log('');
-    }
-    return;
+    log(status('skip', 'skipped', `(--skip-funding) — ${costNote}`));
+    howToFund();
+    log('');
+    return { funded: false, balanceLabel: null };
   }
 
   // Cheap pre-check so an already-funded re-run says nothing at all rather
   // than offering to solve a problem the user does not have.
-  let funded = false;
+  let balanceLabel: string | null = null;
   try {
     const balance = await checkBalance(address, network);
-    funded = balance.balanceWei > 0n;
-    if (funded) {
-      log(`Balance: ${balance.balanceFormatted} ${CURRENCY_SYMBOL} — already funded.\n`);
-      return;
+    balanceLabel = balance.balanceFormatted;
+    if (balance.balanceWei > 0n) {
+      log(status('ok', `already funded`, `${balance.balanceFormatted} ${CURRENCY_SYMBOL}`));
+      log('');
+      return { funded: true, balanceLabel };
     }
     // `--check-balance` predates this step, when funding was a printed faucet
     // link and the poll was opt-in. The poll is now unconditional, so the
     // flag's remaining job is to state the result out loud.
     if (ctx.checkBalanceOnce) {
-      log(`Balance: ${balance.balanceFormatted} ${CURRENCY_SYMBOL} — not funded yet.\n`);
+      log(status('skip', `not funded yet`, `${balance.balanceFormatted} ${CURRENCY_SYMBOL}`));
     }
   } catch (err) {
-    log(`Balance check failed (non-fatal): ${err instanceof Error ? err.message : String(err)}\n`);
+    log(status('skip', 'balance check failed', `(non-fatal) ${err instanceof Error ? err.message : String(err)}`));
   }
 
   if (nonInteractive) {
     // No browser, no prompt, no blocking. `--yes` means "do not ask me
     // things", and opening a payment page unattended would be the single
     // most surprising thing this CLI could do.
-    log(`Not funded. Run \`npx @dmemo/cli fund\` to add ${CURRENCY_SYMBOL}`);
-    log(network === 'mainnet'
-      ? '  (card, Apple Pay, crypto from another chain, or your own wallet).\n'
-      : '  (testnet faucet).\n');
-    if (network === 'testnet') {
-      log(faucetInstructions(address));
-      log('');
-    }
-    return;
+    log(status('skip', 'not funded', `— ${costNote}`));
+    howToFund();
+    log('');
+    return { funded: false, balanceLabel };
   }
 
-  const wantsFunding = await promptYesNo('Fund it now?', true);
-  log('');
+  const wantsFunding = await promptYesNo('  Fund it now?', true);
   if (!wantsFunding) {
-    log('Skipped. Run `npx @dmemo/cli fund` any time; `npx @dmemo/cli balance` checks it.\n');
-    if (network === 'testnet') {
-      log(faucetInstructions(address));
-      log('');
-    }
-    return;
+    log(status('skip', 'skipped', `— ${costNote}`));
+    howToFund();
+    log('');
+    return { funded: false, balanceLabel };
   }
 
   try {
     await runFund({ env: ctx.env, address, network, noOpen: ctx.noOpen, log });
+    // runFund's own completion is authoritative; re-read so the summary
+    // reports what actually landed rather than what was requested.
+    const after = await checkBalance(address, network);
+    log('');
+    return { funded: after.balanceWei > 0n, balanceLabel: after.balanceFormatted };
   } catch (err) {
     // Funding is the one step that talks to a browser, a public RPC, and a
     // payment provider — the three least reliable things in this flow. It
     // must never take the rest of setup down with it.
-    log(`Funding did not complete: ${err instanceof Error ? err.message : String(err)}`);
-    log('Run `npx @dmemo/cli fund` to pick it back up — nothing else is affected.\n');
+    log(status('bad', 'funding did not complete', err instanceof Error ? err.message : String(err)));
+    log(dim(wrap('Run `npx @dmemo/cli fund` to pick it back up — nothing else is affected.', 4)));
+    log('');
+    return { funded: false, balanceLabel };
   }
 }
 
@@ -298,17 +414,16 @@ async function confirmReplacement(
   ctx: { nonInteractive: boolean; force?: boolean; log: (line: string) => void }
 ): Promise<void> {
   const { log } = ctx;
-  log('');
-  log('!! This replaces the wallet dMemo is already using.');
-  log(`   on record: ${existing.address ?? '<unreadable key>'} (${existing.source})`);
-  log(`   replacing with: ${incomingAddress}`);
-  log('   Memories on 0G are encrypted to the key on record. Nothing written');
-  log('   under it is readable by the new wallet — ever.');
-  log(`   ${recoveryHint(existing, null).split('\n').join('\n   ')}`);
+  log(status('bad', red('This replaces the wallet dMemo is already using.')));
+  log(`     ${dim('on record')}       ${existing.address ?? '<unreadable key>'} ${dim(`(${existing.source})`)}`);
+  log(`     ${dim('replacing with')}  ${incomingAddress}`);
+  log(dim(wrap('Memories on 0G are encrypted to the key on record. Nothing written under it is readable by the new wallet — ever.', 5)));
+  log(dim(wrap(recoveryHint(existing, null), 5)));
   log('');
 
   if (ctx.force) {
-    log('Proceeding: --force was given. A timestamped backup will be written first.\n');
+    log(dim(wrap('Proceeding: --force was given. A timestamped backup will be written first.', 4)));
+    log('');
     return;
   }
 

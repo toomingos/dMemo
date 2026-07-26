@@ -95,6 +95,7 @@ function manualInstallInstructions(): string {
 function readMemorySlotOwner(env: NodeJS.ProcessEnv): string | undefined {
   const raw = execFileSync('openclaw', ['config', 'get', MEMORY_SLOT_PATH, '--json'], {
     encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
     env,
   });
   const value = JSON.parse(raw);
@@ -115,7 +116,11 @@ export function installOpenClaw(env: NodeJS.ProcessEnv = process.env): OpenClawI
 
   let output: string;
   try {
-    output = execFileSync('openclaw', ['plugins', 'install', PLUGIN_SPEC], { encoding: 'utf8', env });
+    output = execFileSync('openclaw', ['plugins', 'install', PLUGIN_SPEC], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env,
+    });
   } catch (err) {
     return {
       attempted: true,
