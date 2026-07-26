@@ -98,8 +98,27 @@ export function installDetectedHosts(
 
   if (detected.claudeCode) {
     hosts.claudeCode = installClaudeCode(env);
-    if (hosts.claudeCode.succeeded) log(status('ok', pad('claude-code'), 'plugin installed'));
-    else failure(log, 'claude-code', 'plugin not installed', hosts.claudeCode.manualInstructions);
+    if (hosts.claudeCode.succeeded) {
+      log(
+        status(
+          'ok',
+          pad('claude-code'),
+          hosts.claudeCode.alreadyPresent ? 'plugin already installed' : 'plugin installed'
+        )
+      );
+    } else {
+      // The real reason, not a generic "plugin not installed": now that
+      // "already added/installed" is classified as success, anything left here
+      // is a genuine failure worth reading.
+      failure(
+        log,
+        'claude-code',
+        hosts.claudeCode.attempted
+          ? (hosts.claudeCode.error ?? 'install did not complete')
+          : 'plugin not installed',
+        hosts.claudeCode.manualInstructions
+      );
+    }
   }
 
   if (detected.codex) {
@@ -136,7 +155,13 @@ export function installDetectedHosts(
   if (detected.openclaw) {
     hosts.openclaw = installOpenClaw(env);
     if (hosts.openclaw.succeeded) {
-      log(status('ok', pad('openclaw'), 'plugin installed, memory slot claimed'));
+      log(
+        status(
+          'ok',
+          pad('openclaw'),
+          `${hosts.openclaw.replaced ? 'plugin replaced' : 'plugin installed'}, memory slot claimed`
+        )
+      );
       // Success still leaves the user one manual step: install claims the
       // slot but never sets secrets.
       log(dim(indent(hosts.openclaw.configGuidance.trim(), 5)));

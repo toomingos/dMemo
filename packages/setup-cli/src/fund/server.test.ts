@@ -58,7 +58,10 @@ function harness(overrides: Partial<FundServerOptions> = {}): Promise<Harness> {
       openBrowser: false,
       timeoutMs: 15_000,
       log(line) {
-        const match = /Opening http:\/\/127\.0\.0\.1:(\d+)\/\?t=([0-9a-f]{64})/.exec(line);
+        // Match the URL itself, not the prose around it. The label that
+        // introduces it is presentation and has already been re-worded once;
+        // the URL is the actual contract between server and browser.
+        const match = /http:\/\/127\.0\.0\.1:(\d+)\/\?t=([0-9a-f]{64})/.exec(line);
         if (match && !announced) {
           announced = true;
           resolveHarness({

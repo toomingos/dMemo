@@ -47,6 +47,37 @@ if [ "$1" = "plugins" ] && [ "$2" = "install" ]; then echo "package not found" >
 exit 1
 `;
 
+// The exact refusal a real re-run produces (reported from a live
+// `npx @dmemo/cli setup` second run): OpenClaw will not clobber a plugin it
+// already tracks, and names the two commands that do work.
+const ALREADY_EXISTS = `plugin already exists: $HOME/.openclaw/npm/projects/dmemo-openclaw-plugin-3a233cbdf3/node_modules/@dmemo/openclaw-plugin (delete it first)
+Use 'openclaw plugins update <id-or-npm-spec>' to upgrade the tracked plugin, or rerun install with '--force' to replace it.`;
+
+const ALREADY_EXISTS_FORCE_OK = `#!/bin/sh
+if [ "$1" = "--version" ]; then echo "fake-openclaw"; exit 0; fi
+if [ "$1" = "plugins" ] && [ "$2" = "install" ]; then
+  if [ "$4" = "--force" ]; then echo "replaced $3"; exit 0; fi
+  echo "${ALREADY_EXISTS}" >&2; exit 1
+fi
+if [ "$1" = "config" ] && [ "$2" = "get" ]; then echo "\\"dmemo\\""; exit 0; fi
+exit 1
+`;
+
+const ALREADY_EXISTS_ONLY_UPDATE_OK = `#!/bin/sh
+if [ "$1" = "--version" ]; then echo "fake-openclaw"; exit 0; fi
+if [ "$1" = "plugins" ] && [ "$2" = "update" ]; then echo "updated $3"; exit 0; fi
+if [ "$1" = "plugins" ] && [ "$2" = "install" ]; then echo "${ALREADY_EXISTS}" >&2; exit 1; fi
+if [ "$1" = "config" ] && [ "$2" = "get" ]; then echo "\\"dmemo\\""; exit 0; fi
+exit 1
+`;
+
+const ALREADY_EXISTS_NOTHING_WORKS = `#!/bin/sh
+if [ "$1" = "--version" ]; then echo "fake-openclaw"; exit 0; fi
+if [ "$1" = "plugins" ] && [ "$2" = "install" ]; then echo "${ALREADY_EXISTS}" >&2; exit 1; fi
+if [ "$1" = "plugins" ] && [ "$2" = "update" ]; then echo "registry unreachable" >&2; exit 1; fi
+exit 1
+`;
+
 const INSTALL_OK_CONFIG_GET_FAILS = `#!/bin/sh
 if [ "$1" = "--version" ]; then echo "fake-openclaw"; exit 0; fi
 if [ "$1" = "plugins" ] && [ "$2" = "install" ]; then echo "installed $3"; exit 0; fi
@@ -99,6 +130,47 @@ test('install succeeds but the slot verification command itself fails: reported 
   assert.equal(result.attempted, true);
   assert.equal(result.succeeded, false);
   assert.match(result.error ?? '', /verifying/);
+});
+
+// --- re-running `dmemo setup` -------------------------------------------
+//
+// The reported bug: a second `npx @dmemo/cli setup` reported openclaw as a
+// failed step, because `plugins install` exits non-zero on a plugin it
+// already tracks. "Already installed" is the end state we wanted, so it must
+// resolve to success, not to a red line.
+
+test('re-run: install refuses because the plugin exists, --force replaces it and the step succeeds', () => {
+  const env = fakeOpenclawBin(ALREADY_EXISTS_FORCE_OK);
+  const result = installOpenClaw(env);
+  assert.equal(result.succeeded, true, 'a second setup run must not report openclaw as failed');
+  assert.equal(result.replaced, true, 'the caller needs to know it replaced rather than freshly installed');
+  assert.equal(result.slotClaimed, true, 'the slot is still verified after a forced replace');
+  assert.equal(result.error, undefined);
+});
+
+test('re-run: when --force is unavailable, `plugins update` is the documented fallback', () => {
+  const env = fakeOpenclawBin(ALREADY_EXISTS_ONLY_UPDATE_OK);
+  const result = installOpenClaw(env);
+  assert.equal(result.succeeded, true);
+  assert.equal(result.replaced, true);
+  assert.equal(result.slotClaimed, true);
+});
+
+test('re-run: neither --force nor update works — reported as a failure, with both commands named', () => {
+  const env = fakeOpenclawBin(ALREADY_EXISTS_NOTHING_WORKS);
+  const result = installOpenClaw(env);
+  assert.equal(result.succeeded, false, 'a genuinely stuck install must not be papered over');
+  assert.match(result.error ?? '', /--force/);
+  assert.match(result.error ?? '', /plugins update/);
+});
+
+test('a real install failure is never mistaken for "already installed"', () => {
+  // Guards the classifier: INSTALL_FAILS says "package not found", which must
+  // not trigger the --force retry path that "already exists" does.
+  const env = fakeOpenclawBin(INSTALL_FAILS);
+  const result = installOpenClaw(env);
+  assert.equal(result.succeeded, false);
+  assert.equal(result.replaced, undefined, 'no replace should have been attempted');
 });
 
 test('configGuidance never tells the user to hand-edit plugins.slots.memory', () => {

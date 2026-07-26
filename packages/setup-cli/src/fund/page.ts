@@ -5,6 +5,9 @@
 // on another chain, no funds at all, no wallet at all — hit a dead end. See
 // research/0g-pay-funding.md for the rails behind the other two paths.
 //
+// Chrome, colour and type come from `../web/theme.ts`, which mirrors
+// dmemo.ai. See that file for why.
+//
 // THE EXTERNAL-REQUEST EXCEPTION. `connect/page.ts:18` states the rule this
 // page bends: "No external requests of any kind: no CDN, no fonts, no
 // analytics." The card and cross-chain paths are a hosted third-party widget
@@ -27,6 +30,7 @@
 //     Transak's KYC capture.
 
 import { escapeHtml, embedJson as embed } from '../loopback.js';
+import { renderShell, SHARED_SCRIPT } from '../web/theme.js';
 
 export interface FundPageOptions {
   token: string;
@@ -49,112 +53,39 @@ export interface FundPageOptions {
   valueHint?: string;
 }
 
+/** Page-specific layout on top of the shared tokens. */
+const CSS = `
+.account{display:grid;gap:.6rem;margin-bottom:1.1rem}
+.account .row{display:flex;align-items:center;gap:.6rem}
+.account .row .k{
+  font-size:.6875rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+}
+.copy{
+  width:auto;margin-left:auto;padding:.25rem .55rem;font-size:.6875rem;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--muted);box-shadow:none;
+}
+.copy:hover:not(:disabled){box-shadow:none;color:var(--primary)}
+.balance{font-size:.875rem;color:var(--muted)}
+.balance b{color:var(--fg);font-weight:500}
+.balance .live{color:var(--muted);font-size:.8125rem}
+`;
+
 export function renderFundPage(opts: FundPageOptions): string {
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="referrer" content="no-referrer">
-<title>Fund your dMemo account — dMemo</title>
-<style>
-  :root {
-    color-scheme: light dark;
-    --bg: #ffffff; --fg: #16181d; --muted: #6b7280; --line: #e5e7eb;
-    --card: #fafafa; --accent: #4f46e5; --accent-fg: #ffffff;
-    --ok: #15803d; --err: #b91c1c; --warn: #b45309;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #0d0f14; --fg: #e8eaed; --muted: #9aa1ac; --line: #262a33;
-      --card: #14171f; --accent: #6366f1; --accent-fg: #ffffff;
-      --ok: #4ade80; --err: #f87171; --warn: #fbbf24;
-    }
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; padding: 2.5rem 1.25rem; background: var(--bg); color: var(--fg);
-    font: 15px/1.55 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
-    display: flex; justify-content: center;
-  }
-  main { width: 100%; max-width: 34rem; }
-  h1 { font-size: 1.35rem; margin: 0 0 .25rem; letter-spacing: -.01em; }
-  .sub { color: var(--muted); margin: 0 0 1.5rem; font-size: .9rem; }
-  .panel {
-    border: 1px solid var(--line); background: var(--card);
-    border-radius: .7rem; padding: 1.1rem;
-  }
-  .account { margin-bottom: 1rem; }
-  .account .label { font-size: .8rem; color: var(--muted); }
-  .addr {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: .82rem; word-break: break-all; background: var(--bg);
-    border: 1px solid var(--line); border-radius: .45rem; padding: .5rem .6rem;
-    margin: .4rem 0 .5rem;
-  }
-  .bal { font-size: .88rem; }
-  .bal b { font-variant-numeric: tabular-nums; }
-  button {
-    font: inherit; cursor: pointer; border-radius: .55rem;
-    border: 1px solid var(--line); background: var(--bg); color: var(--fg);
-    padding: .7rem .85rem; display: flex; align-items: center; gap: .65rem;
-    width: 100%; text-align: left;
-  }
-  button:hover:not(:disabled) { border-color: var(--accent); }
-  button:disabled { opacity: .55; cursor: default; }
-  button.primary {
-    background: var(--accent); color: var(--accent-fg);
-    border-color: var(--accent); justify-content: center; font-weight: 560;
-  }
-  button img { width: 1.5rem; height: 1.5rem; border-radius: .3rem; flex: 0 0 auto; }
-  .options { display: grid; gap: .55rem; }
-  .options button { flex-direction: column; align-items: flex-start; gap: .15rem; }
-  .options button .t { font-weight: 560; }
-  .options button .d { font-size: .82rem; color: var(--muted); font-weight: 400; }
-  .panel button + button, .panel .note + button { margin-top: .5rem; }
-  .note { font-size: .82rem; color: var(--muted); margin-top: .85rem; }
-  .msg { margin-top: 1rem; font-size: .88rem; }
-  .msg.err { color: var(--err); }
-  .msg.ok { color: var(--ok); }
-  .msg.warn { color: var(--warn); }
-  .back {
-    width: auto; padding: .35rem .6rem; font-size: .82rem; margin-bottom: .75rem;
-  }
-  iframe {
-    width: 100%; height: 34rem; border: 1px solid var(--line);
-    border-radius: .6rem; background: var(--bg); display: block;
-  }
-  .spinner {
-    display: inline-block; width: .85rem; height: .85rem; border-radius: 50%;
-    border: 2px solid var(--line); border-top-color: var(--accent);
-    animation: spin .7s linear infinite; vertical-align: -.1rem; margin-right: .4rem;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em; }
-  a { color: var(--accent); }
-</style>
-</head>
-<body>
-<main>
-  <h1>Fund your dMemo account</h1>
-  <p class="sub">Writing a memory costs a small amount of ${escapeHtml(opts.currencySymbol)}
-  (about ${opts.costLow}–${opts.costHigh} per write) on ${escapeHtml(opts.chainName)}.
-  This account only ever pays those fees.</p>
-
-  <div class="panel">
-    <div class="account">
-      <div class="label">Your dMemo account</div>
-      <div class="addr" id="addr"></div>
-      <div class="bal">Balance: <b id="bal">${escapeHtml(opts.balanceLabel)}</b>
-        ${escapeHtml(opts.currencySymbol)} <span id="balnote" class="note" style="margin:0"></span></div>
-    </div>
+  const sym = escapeHtml(opts.currencySymbol);
+  return renderShell({
+    title: 'Fund your dMemo account — dMemo',
+    badge: 'dmemo fund',
+    heading: 'Fund your account',
+    sub:
+      `Writing a memory costs about ${opts.costLow}–${opts.costHigh} ${sym} on ` +
+      `${escapeHtml(opts.chainName)}. This account only ever pays those fees — ` +
+      `nothing else can be spent from it.`,
+    css: CSS,
+    body: `  <div class="panel">
+    <div class="account" id="account"></div>
     <div id="body"></div>
-  </div>
-  <div class="msg" id="msg"></div>
-</main>
-
-<script>
-(function () {
+  </div>`,
+    script: `(function () {
   "use strict";
 
   var CFG = ${embed({
@@ -165,36 +96,45 @@ export function renderFundPage(opts: FundPageOptions): string {
     chainName: opts.chainName,
     rpcUrl: opts.rpcUrl,
     currencySymbol: opts.currencySymbol,
+    balanceLabel: opts.balanceLabel,
     fundAmountLabel: opts.fundAmountLabel,
     fundAmountWeiHex: opts.fundAmountWeiHex,
     widgetUrl: opts.widgetUrl || null,
     faucetUrl: opts.faucetUrl || null,
     valueHint: opts.valueHint || null,
   })};
-
+${SHARED_SCRIPT}
   var bodyEl = document.getElementById("body");
-  var msgEl = document.getElementById("msg");
-  var balEl = document.getElementById("bal");
-  var balNoteEl = document.getElementById("balnote");
-  document.getElementById("addr").textContent = CFG.address;
+  var accountEl = document.getElementById("account");
 
-  function el(tag, cls, text) {
-    var n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text != null) n.textContent = text;
-    return n;
-  }
+  // ---- account header ------------------------------------------------------
+  // The address is in a copy-to-clipboard frame because the faucet path
+  // *requires* pasting it, and asking someone to hand-select 42 hex characters
+  // is how a wrong address gets funded.
+  var addrBox = termbox("your dmemo account", CFG.address);
+  var copyBtn = el("button", "copy", "Copy");
+  addrBox.querySelector(".top").appendChild(copyBtn);
+  copyBtn.onclick = function () {
+    var restore = function () { copyBtn.textContent = "Copy"; };
+    if (!navigator.clipboard) { copyBtn.textContent = "Select it"; setTimeout(restore, 2000); return; }
+    navigator.clipboard.writeText(CFG.address).then(function () {
+      copyBtn.textContent = "Copied";
+      setTimeout(restore, 2000);
+    }).catch(function () {
+      copyBtn.textContent = "Select it";
+      setTimeout(restore, 2000);
+    });
+  };
+  accountEl.appendChild(addrBox);
 
-  function say(text, kind) {
-    msgEl.className = "msg" + (kind ? " " + kind : "");
-    msgEl.textContent = text || "";
-  }
-
-  function busy(text) {
-    msgEl.className = "msg";
-    msgEl.innerHTML = '<span class="spinner"></span>';
-    msgEl.appendChild(document.createTextNode(text));
-  }
+  var balRow = el("div", "balance");
+  var balVal = el("b", null, CFG.balanceLabel + " " + CFG.currencySymbol);
+  balRow.appendChild(el("span", null, "Balance "));
+  balRow.appendChild(balVal);
+  var balNoteEl = el("span", "live", "");
+  balRow.appendChild(document.createTextNode(" "));
+  balRow.appendChild(balNoteEl);
+  accountEl.appendChild(balRow);
 
   function post(path, body) {
     return fetch(path, {
@@ -235,7 +175,7 @@ export function renderFundPage(opts: FundPageOptions): string {
       body: "{}"
     }).then(function (r) { return r.json(); }).then(function (res) {
       if (done || !res || typeof res.balanceLabel !== "string") return;
-      balEl.textContent = res.balanceLabel;
+      balVal.textContent = res.balanceLabel + " " + CFG.currencySymbol;
       if (res.funded) {
         done = true;
         renderDone(res.balanceLabel);
@@ -253,16 +193,35 @@ export function renderFundPage(opts: FundPageOptions): string {
 
   // ---- landing: pick a path ----------------------------------------------
   function renderOptions() {
+    view = "options";
     bodyEl.innerHTML = "";
-    var list = el("div", "options");
+    var list = el("div", "options stack");
 
     function option(title, detail, onClick) {
       var b = el("button");
       b.appendChild(el("span", "t", title));
       b.appendChild(el("span", "d", detail));
+      b.appendChild(arrow());
       b.onclick = onClick;
       list.appendChild(b);
       return b;
+    }
+
+    if (CFG.faucetUrl) {
+      // Testnet. The faucet is not a footnote here — it is the only rail that
+      // reaches chain 16602, so it leads.
+      option(
+        "Claim from the testnet faucet",
+        "Free, 0.1 " + CFG.currencySymbol + "/day. Opens the faucet and copies " +
+          "your address \\u2014 paste it there and claim.",
+        function () {
+          if (navigator.clipboard) navigator.clipboard.writeText(CFG.address).catch(function () {});
+          window.open(CFG.faucetUrl, "_blank", "noopener,noreferrer");
+          say("Address copied. Paste it into the faucet and claim \\u2014 this page is " +
+              "watching for the funds.", "ok");
+          startPolling("waiting for the faucet\\u2026");
+        }
+      );
     }
 
     // Ordered by "least surprising first" for someone who already has crypto,
@@ -285,36 +244,31 @@ export function renderFundPage(opts: FundPageOptions): string {
           CFG.currencySymbol + " and delivered here.",
         function () { renderWidget("crypto"); }
       );
-    } else {
-      // Testnet: neither rail reaches chain 16602, so do not pretend.
-      list.appendChild(el("div", "note",
-        "Card and cross-chain funding are mainnet-only \\u2014 those rails do not " +
-        "reach the testnet chain. On testnet, use the faucet below."));
     }
 
     bodyEl.appendChild(list);
 
-    if (CFG.faucetUrl) {
-      var note = el("div", "note", "Testnet faucet (0.1 " + CFG.currencySymbol + "/day): ");
-      var a = document.createElement("a");
-      a.href = CFG.faucetUrl;
-      a.target = "_blank";
-      a.rel = "noreferrer noopener";
-      a.textContent = CFG.faucetUrl;
-      note.appendChild(a);
-      bodyEl.appendChild(note);
+    if (!CFG.widgetUrl) {
+      // Testnet: neither paid rail reaches chain 16602, so do not pretend.
+      bodyEl.appendChild(el("div", "note",
+        "Card and cross-chain funding are mainnet-only \\u2014 those rails do not " +
+        "reach " + CFG.chainName + "."));
     }
 
-    var skip = el("button", null, "Skip \\u2014 I will fund it later");
+    var skip = el("button", "ghost", "Skip \\u2014 I will fund it later");
+    skip.style.marginTop = ".75rem";
     skip.onclick = function () {
       skip.disabled = true;
       busy("Finishing\\u2026");
       post("/api/complete", { skipped: true }).then(function () {
         done = true;
         bodyEl.innerHTML = "";
-        bodyEl.appendChild(el("div", null,
-          "Skipped. Run \\u0060dmemo fund\\u0060 whenever you are ready."));
-        bodyEl.appendChild(el("div", "note", "You can close this tab."));
+        var head = el("div", "done");
+        head.appendChild(el("span", "tick", "\\u2192"));
+        head.appendChild(el("span", null, "Skipped \\u2014 nothing was sent."));
+        bodyEl.appendChild(head);
+        bodyEl.appendChild(el("div", "note",
+          "Your terminal has the command to pick this back up. You can close this tab."));
         say("");
       }).catch(fail);
     };
@@ -369,18 +323,22 @@ export function renderFundPage(opts: FundPageOptions): string {
     bodyEl.appendChild(backButton());
 
     if (found.length === 0) {
-      bodyEl.appendChild(el("div", null, "Looking for browser wallets\\u2026"));
+      var looking = el("div");
+      looking.appendChild(el("span", "cursor"));
+      looking.appendChild(document.createTextNode("Looking for browser wallets\\u2026"));
+      bodyEl.appendChild(looking);
       bodyEl.appendChild(el("div", "note",
         "No wallet extension detected. Install MetaMask, Rabby, or another " +
-        "EIP-6963 wallet and reload \\u2014 or go back and pay by card, which " +
-        "needs no wallet at all."));
+        "EIP-6963 wallet and reload \\u2014 or go back and use one of the other " +
+        "options, which need no wallet at all."));
       return;
     }
 
     bodyEl.appendChild(el("div", "note",
       "Sends " + CFG.fundAmountLabel + " " + CFG.currencySymbol + " to the account above."));
 
-    var list = el("div", "options");
+    var list = el("div", "stack");
+    list.style.marginTop = ".85rem";
     found.forEach(function (detail) {
       var b = el("button");
       if (detail.info.icon) {
@@ -390,6 +348,7 @@ export function renderFundPage(opts: FundPageOptions): string {
         b.appendChild(img);
       }
       b.appendChild(el("span", "t", detail.info.name || "Wallet"));
+      b.appendChild(arrow());
       b.onclick = function () { sendFrom(detail); };
       list.appendChild(b);
     });
@@ -479,8 +438,11 @@ export function renderFundPage(opts: FundPageOptions): string {
   // ---- done ---------------------------------------------------------------
   function renderDone(balanceLabel) {
     bodyEl.innerHTML = "";
-    bodyEl.appendChild(el("div", null,
-      "\\u2705 Funded \\u2014 " + balanceLabel + " " + CFG.currencySymbol + "."));
+    var head = el("div", "done");
+    head.appendChild(el("span", "tick", "\\u2713"));
+    head.appendChild(el("span", null,
+      "Funded \\u2014 " + balanceLabel + " " + CFG.currencySymbol + "."));
+    bodyEl.appendChild(head);
     bodyEl.appendChild(el("div", "note",
       "Return to your terminal for the summary. You can close this tab."));
     balNoteEl.textContent = "";
@@ -490,9 +452,6 @@ export function renderFundPage(opts: FundPageOptions): string {
   }
 
   renderOptions();
-})();
-</script>
-</body>
-</html>
-`;
+})();`,
+  });
 }

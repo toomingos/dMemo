@@ -30,7 +30,7 @@ import {
   checkBalance,
   tokenflightWidgetUrl,
   approximateWritesForUsd,
-  faucetInstructions,
+  fundingHelp,
   CURRENCY_SYMBOL,
   FAUCET_URL,
   FIAT_MIN_USD,
@@ -41,6 +41,7 @@ import {
 } from './network.js';
 import { readDmemoConfig, type NetworkName } from './dmemoConfig.js';
 import { runFundServer } from './fund/server.js';
+import { bold, dim, lime, outcome, status, symbols, wrap } from './theme.js';
 
 export interface FundOptions {
   env?: NodeJS.ProcessEnv;
@@ -56,6 +57,11 @@ export interface FundOptions {
   port?: number;
   timeoutMs?: number;
   log?: (line: string) => void;
+  /** Set by `setup`, which runs this as its step 3. Suppresses the standalone
+   * banner and the closing rule — inside setup those are the wrapper's job,
+   * and printing a second "▪ dMemo fund" header mid-wizard reads as a
+   * different program starting. */
+  embedded?: boolean;
 }
 
 export interface FundResult {
@@ -110,8 +116,20 @@ export async function runFund(opts: FundOptions = {}): Promise<FundResult> {
   const fundAmount = opts.fundAmount ?? DEFAULT_FUND_AMOUNT_ETHER;
   const threshold = parseEther(FUNDED_THRESHOLD_ETHER);
 
-  log(`dMemo fund — ${chainNameFor(network)} (chain ${chainIdFor(network)})\n`);
-  log(`  Account  ${address}`);
+  const sym = symbols();
+  const embedded = opts.embedded === true;
+  /** `  account   0x…` — the same dim-key/bright-value column setup uses. */
+  const field = (key: string, value: string, note?: string): string =>
+    `  ${dim(key.padEnd(7))}  ${value}${note ? `  ${dim(note)}` : ''}`;
+
+  if (!embedded) {
+    log(
+      `${lime(sym.mark)} ${bold('dMemo fund')} ` +
+        `${dim(`${sym.bullet} ${chainNameFor(network)} (chain ${chainIdFor(network)})`)}`
+    );
+    log('');
+  }
+  log(field('account', address));
 
   // --- already funded? short-circuit without opening anything -------------
   let balanceWei = 0n;
@@ -123,26 +141,55 @@ export async function runFund(opts: FundOptions = {}): Promise<FundResult> {
   } catch (err) {
     // Offering to fund an already-funded account wastes a click; refusing to
     // fund an empty one strands the user. Assume unfunded.
-    log(`  balance check failed (assuming unfunded): ${err instanceof Error ? err.message : String(err)}`);
+    log(
+      status(
+        'skip',
+        'balance check failed',
+        `(assuming unfunded) ${err instanceof Error ? err.message : String(err)}`
+      )
+    );
   }
 
+  const writesNote = (wei: bigint): string =>
+    `${sym.bullet} ~${writesFor(wei).toLocaleString('en-US')} memory writes`;
+
   if (balanceWei >= threshold) {
-    log(`  Balance  ${balanceLabel} ${CURRENCY_SYMBOL} — already funded, nothing to do.\n`);
-    log(`  That is roughly ${writesFor(balanceWei).toLocaleString('en-US')} memory writes.`);
+    log(field('balance', `${balanceLabel} ${CURRENCY_SYMBOL}`, writesNote(balanceWei)));
+    log('');
+    log(status('ok', 'already funded', 'nothing to do'));
+    if (!embedded) {
+      log('');
+      log(outcome('Funded', `${balanceLabel} ${CURRENCY_SYMBOL}`));
+      log('');
+    }
     return { address, network, funded: true, skipped: false, balanceLabel, alreadyFunded: true };
   }
 
-  log(`  Balance  ${balanceLabel} ${CURRENCY_SYMBOL}\n`);
+  log(field('balance', `${balanceLabel} ${CURRENCY_SYMBOL}`, balanceWei === 0n ? '— empty' : undefined));
+  log('');
   log(
-    `Each memory write costs about ${COST_PER_WRITE_0G_LOW}–${COST_PER_WRITE_0G_HIGH} ${CURRENCY_SYMBOL}, ` +
-      `so a small\namount lasts a long time.\n`
+    dim(
+      wrap(
+        `Each memory write costs about ${COST_PER_WRITE_0G_LOW}–${COST_PER_WRITE_0G_HIGH} ${CURRENCY_SYMBOL}, so a small amount lasts a long time.`,
+        2
+      )
+    )
   );
+  log('');
 
   if (network === 'testnet') {
     // Neither the fiat nor the cross-chain rail lists chain 16602, so the
     // page must not offer them. The faucet is the only route.
-    log('Testnet: card and cross-chain funding are mainnet-only — those rails');
-    log('do not reach chain 16602. The faucet is the way in.\n');
+    log(status('skip', 'card and cross-chain funding are mainnet-only'));
+    log(
+      dim(
+        wrap(
+          `Those rails do not reach chain ${chainIdFor(network)}. The faucet is the way in, and the page opening now links straight to it.`,
+          4
+        )
+      )
+    );
+    log('');
   }
 
   const result = await runFundServer({
@@ -180,22 +227,38 @@ export async function runFund(opts: FundOptions = {}): Promise<FundResult> {
     log,
   });
 
-  log('');
+  // Three terminal states, one message each. The old code answered the
+  // "skipped" case twice — a generic "send 0G to <address>" *and* the full
+  // faucet procedure — which on testnet is actively wrong: there is nothing
+  // to send from. `fundingHelp()` is now the single source for "still empty".
   if (result.funded) {
-    log(`✔ Funded — ${result.balanceLabel} ${CURRENCY_SYMBOL}.`);
-    log(`  Roughly ${writesFor(parseEther(result.balanceLabel)).toLocaleString('en-US')} memory writes.`);
-  } else if (result.skipped) {
-    log('Funding skipped — the account is still empty.');
-    log(`  Send ${CURRENCY_SYMBOL} to ${address} on ${chainNameFor(network)},`);
-    log('  or run `npx @dmemo/cli fund` again. `npx @dmemo/cli balance` checks it any time.');
-    if (network === 'testnet') {
+    log(
+      status(
+        'ok',
+        'funded',
+        `${result.balanceLabel} ${CURRENCY_SYMBOL} ${writesNote(parseEther(result.balanceLabel))}`
+      )
+    );
+    if (!embedded) {
       log('');
-      log(faucetInstructions(address));
+      log(outcome('Funded', `${result.balanceLabel} ${CURRENCY_SYMBOL}`));
     }
+  } else if (result.skipped) {
+    log(status('skip', 'not funded', 'you closed the page without funding'));
+    log(fundingHelp(address, network));
   } else {
-    log('No funds arrived yet.');
-    log(`  If a card or cross-chain purchase is still settling it will land at ${address}`);
-    log('  on its own — check with `npx @dmemo/cli balance`.');
+    log(status('skip', 'not funded', 'nothing arrived while the page was open'));
+    if (network === 'mainnet') {
+      log(
+        dim(
+          wrap(
+            `A card or cross-chain purchase can still be settling — it lands at ${address} on its own, with nothing more to do here.`,
+            4
+          )
+        )
+      );
+    }
+    log(fundingHelp(address, network));
   }
   log('');
 

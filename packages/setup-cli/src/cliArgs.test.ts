@@ -11,6 +11,7 @@ const DEFAULTS = {
   version: false,
   yes: false,
   network: undefined,
+  walletMode: undefined,
   importKey: undefined,
   skipHosts: false,
   checkBalance: false,
@@ -153,6 +154,37 @@ test('--port must be numeric', () => {
   assert.equal(args.port, 4321);
 });
 
+// --- wallet mode ----------------------------------------------------------
+// These flags decide which key ends up decrypting the user's memories, so the
+// same rule as `--network` applies: never guess, never silently prefer one.
+
+test('--connect and --generate each resolve to a wallet mode', () => {
+  assert.equal(parseArgs(['setup', '--connect']).walletMode, 'connect');
+  assert.equal(parseArgs(['setup', '--generate']).walletMode, 'generate');
+  assert.equal(parseArgs(['setup', '--import-key', '0xabc']).walletMode, 'import');
+  assert.equal(parseArgs(['setup']).walletMode, undefined, 'unspecified must stay unspecified');
+});
+
+test('two wallet-mode flags at once is a hard error, not a precedence rule', () => {
+  for (const argv of [
+    ['setup', '--connect', '--generate'],
+    ['setup', '--connect', '--import-key', '0xabc'],
+    ['setup', '--generate', '--import-key', '0xabc'],
+  ]) {
+    assert.throws(() => parseArgs(argv), (err: unknown) => {
+      assert.ok(err instanceof CliUsageError, argv.join(' '));
+      assert.match(err.message, /only one of/);
+      return true;
+    }, argv.join(' '));
+  }
+});
+
+test('the deprecated `connect` command still parses, so the alias can run setup', () => {
+  const args = parseArgs(['connect', '--scope', 'work']);
+  assert.equal(args.command, 'connect');
+  assert.equal(args.scope, 'work');
+});
+
 test('regression: every currently-documented invocation parses to the expected options, unchanged', () => {
   assert.deepEqual(parseArgs(['setup']), { ...DEFAULTS, command: 'setup' });
 
@@ -163,6 +195,7 @@ test('regression: every currently-documented invocation parses to the expected o
     ...DEFAULTS,
     command: 'setup',
     importKey: '0xabc',
+    walletMode: 'import',
   });
 
   assert.deepEqual(parseArgs(['setup', '--network', 'mainnet']), {

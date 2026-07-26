@@ -3,13 +3,17 @@
 `npx @dmemo/cli setup` — the onboarding wizard for dMemo: private, encrypted,
 portable memory for coding agents, backed by 0G Storage. One command wires up
 the memory leg end-to-end with **no sign-ins, no accounts, and no API keys**.
-The only browser step is funding, it is optional, and it is a page served from
-your own machine on `127.0.0.1`.
+Every browser step is a page served from your own machine on `127.0.0.1`, and
+**no step ever asks you to paste a private key**.
 
 ## What it does, in order
 
-1. **Wallet** — generate a new wallet or import an existing private key.
-   The key is never printed, logged, or echoed back — it goes straight into
+1. **Wallet** — connect a browser wallet (the default) or generate a local key.
+   Connecting opens a local page, you pick a wallet and sign one message, and
+   dMemo derives a **separate** account from that signature — your wallet's own
+   private key is never asked for, typed, or transmitted (see
+   [Connecting a wallet](#connecting-a-wallet)). Either way the resulting key is
+   never printed, logged, or echoed back — it goes straight into
    `~/.dmemo/config.json` (mode `0600`). If a wallet is **already**
    configured, setup keeps it (see [Replacing a wallet](#replacing-a-wallet)).
 2. **Config** — writes `~/.dmemo/config.json`, the flat env-var-shaped
@@ -45,9 +49,12 @@ your own machine on `127.0.0.1`.
 ## Usage
 
 ```bash
-npx @dmemo/cli setup                  # interactive wizard
+npx @dmemo/cli setup                  # interactive wizard (offers to connect a wallet first)
+npx @dmemo/cli setup --connect        # skip the ask: go straight to the wallet page
+npx @dmemo/cli setup --scope work     # a second, fully isolated account off the same wallet
+npx @dmemo/cli setup --generate       # mint a local key instead — no wallet, no browser
 npx @dmemo/cli setup --yes            # non-interactive: generate a wallet, sensible defaults
-npx @dmemo/cli setup --import-key 0x… # import an existing key instead of generating one
+npx @dmemo/cli setup --import-key 0x… # restore a key from a backup (scripted installs)
 npx @dmemo/cli setup --testnet        # run the whole install against the free throwaway chain
 npx @dmemo/cli setup --skip-hosts     # wallet + config only, skip host wiring
 npx @dmemo/cli setup --skip-funding   # don't offer to fund; just print how to
@@ -72,7 +79,7 @@ durable, so it is what a plain `npx @dmemo/cli setup` gives you.
 
 `--testnet` (or the longhand `--network testnet`) runs the whole install
 against 0G Galileo, chain 16602 — free, faucet-funded, and throwaway. It works
-on `setup`, `connect`, and `fund`.
+on `setup` and `fund`.
 
 ```bash
 npx @dmemo/cli setup --testnet   # evaluate for free; memories live on a disposable chain
@@ -116,6 +123,55 @@ claimed — the CLI re-reads `eth_getBalance` before reporting success. The
 destination address is locked into the payment URL and is not editable from
 inside the page.
 
+## Connecting a wallet
+
+Step 1 of `setup` offers to connect a browser wallet, and that is the
+pre-selected default. It serves a page on `127.0.0.1`, discovers your installed
+wallets via [EIP-6963](https://eips.ethereum.org/EIPS/eip-6963), and asks you to
+sign one plain-text message. That message authorizes no transaction and costs no
+gas.
+
+**Your wallet's private key is never requested, entered, or transmitted.**
+There is deliberately no prompt anywhere in this CLI that asks you to paste one:
+a private key is the most sensitive string you own, and asking for it in a
+terminal teaches exactly the habit phishing relies on.
+
+What dMemo does with the signature is derive a **separate account** from it
+(HKDF-SHA256 over the signature bytes). That derived account is what signs
+storage transactions and decrypts your memories. Your own wallet only ever does
+two things: prove it is yours by signing, and optionally send the derived
+account a little 0G to spend.
+
+Two consequences worth knowing:
+
+- **It is portable.** The same wallet + the same scope reproduces the same
+  account, forever, on any machine. Reconnecting is how you get your memories
+  back — there is nothing to export or back up.
+- **Scope splits identities.** `--scope work` derives a different account from
+  the same wallet, with its own memories, fully isolated from `default`. The
+  scope is part of the signed message, so it is not a label you can change
+  later without changing the account.
+
+```bash
+npx @dmemo/cli setup --connect              # go straight to the wallet page
+npx @dmemo/cli setup --connect --scope work # a separate account off the same wallet
+npx @dmemo/cli setup --connect --no-open    # print the URL instead of launching a browser
+```
+
+`npx @dmemo/cli connect` still works as a deprecated alias for
+`setup --connect`.
+
+Wallets are asked to sign twice, and both signatures must match byte-for-byte.
+Deterministic ECDSA nonces ([RFC 6979](https://www.rfc-editor.org/rfc/rfc6979))
+are a near-universal convention rather than a requirement, and a wallet that
+signs non-deterministically would derive a different account every time — so
+that wallet is refused up front with an explanation, rather than silently
+stranding your memories behind a key you can never reproduce.
+
+`--generate` (or `--yes`, or any non-interactive run) skips all of this and
+mints a local key instead. Nothing opens, nothing is signed — but that key then
+exists in exactly one place on earth, `~/.dmemo/config.json`.
+
 ## Replacing a wallet
 
 `DMEMO_PRIVATE_KEY` is not a rotatable credential. It is the only key that can
@@ -127,18 +183,24 @@ So, following the same contract as `solana-keygen new`:
 - **Re-running `dmemo setup` keeps the wallet already on record.** It goes
   straight on to refreshing the config and wiring up hosts. This is the normal
   case (you installed a new agent and want it hooked up).
-- **Replacing takes an explicit ask** — `--new-wallet` or `--import-key <hex>`
-  — **and consent**: an interactive `y/N` you must answer, or `--force` for
-  unattended runs. Without either, an unattended run refuses and exits
-  non-zero rather than guessing.
+- **Replacing takes an explicit ask** — `--connect`, `--generate`,
+  `--new-wallet` or `--import-key <hex>` — **and consent**: an interactive
+  `y/N` you must answer, or `--force` for unattended runs. Without either, an
+  unattended run refuses and exits non-zero rather than guessing.
 - **The old config is always backed up first**, to
   `~/.dmemo/config.json.<timestamp>.bak` (mode `0600`), whichever command did
   the replacing. Backups are written with `COPYFILE_EXCL`, so a backup can
   never overwrite a backup.
-- `dmemo connect` asks the same question, *before* it opens a browser — but
-  only when the key on record is a locally-generated one. A connect-derived
+- **`--connect` asks *before* it opens a browser.** The other modes ask after,
+  because they can name the exact address they are about to displace;
+  connecting cannot know the derived address until you have already picked a
+  wallet and signed, and making you do that only to be refused would be
+  backwards.
+- **What "recoverable" means depends on the key on record.** A connect-derived
   account is reproducible forever from the same wallet + scope, so replacing
-  one is undoable; a generated key exists nowhere but that file.
+  one is undoable by reconnecting. A generated or imported key exists nowhere
+  but `~/.dmemo/config.json` and its backups. The prompt tells you which one
+  you are about to replace.
 
 ```bash
 npx @dmemo/cli setup --new-wallet          # mint a new wallet, asks before replacing
@@ -163,6 +225,9 @@ throwaway `HOME`, never a real machine's dotfiles.
 
 ## Security notes
 
+- **No prompt in this CLI ever asks for a private key.** Connecting a wallet
+  exchanges a signature, never a key; `--import-key` exists as a flag only, for
+  scripted installs and restoring from a backup.
 - The private key never appears in any `console.log`, error message, or
   written file other than `~/.dmemo/config.json` (mode `0600`).
 - The balance check is a read-only `eth_getBalance` RPC call — it never
@@ -176,7 +241,7 @@ throwaway `HOME`, never a real machine's dotfiles.
 - The wallet on record is never replaced without an explicit flag *and*
   consent, and never without a backup — see
   [Replacing a wallet](#replacing-a-wallet).
-- The pages `connect` and `fund` serve are bound to `127.0.0.1` (never
+- The wallet and funding pages are bound to `127.0.0.1` (never
   `0.0.0.0`), gated by a single-use 32-byte token compared in constant time,
   and reject a cross-site `Origin` or a rebound `Host`. They time out on
   their own if you close the tab.

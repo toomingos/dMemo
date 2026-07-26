@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { runSetup } from './setup.js';
-import { runConnect } from './connect.js';
 import { runFund } from './fund.js';
 import { checkBalance } from './network.js';
 import { readDmemoConfig } from './dmemoConfig.js';
@@ -45,19 +44,6 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  if (args.command === 'connect') {
-    await runConnect({
-      network: args.network,
-      scope: args.scope,
-      fundAmount: args.fundAmount,
-      skipHosts: args.skipHosts,
-      noOpen: args.noOpen,
-      port: args.port,
-      force: args.force,
-    });
-    return 0;
-  }
-
   if (args.command === 'fund') {
     await runFund({
       network: args.network,
@@ -69,10 +55,25 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  if (args.command === 'setup') {
+  if (args.command === 'setup' || args.command === 'connect') {
+    // `connect` was its own command back when setup could only generate or
+    // import a key. Setup's step 1 now offers the same browser flow, so the
+    // command survives only as an alias — the wallet flow is the default path
+    // through onboarding, not a separate one.
+    if (args.command === 'connect') {
+      console.error(
+        '`dmemo connect` is deprecated — `npx @dmemo/cli setup` now connects a wallet by default.\n' +
+          'Running setup with the wallet flow preselected.\n'
+      );
+    }
+
     await runSetup({
       yes: args.yes,
       network: args.network,
+      walletMode: args.command === 'connect' ? 'connect' : args.walletMode,
+      scope: args.scope,
+      fundAmount: args.fundAmount,
+      port: args.port,
       importKey: args.importKey,
       newWallet: args.newWallet,
       force: args.force,

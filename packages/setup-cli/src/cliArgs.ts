@@ -26,6 +26,11 @@ export type Command = (typeof COMMANDS)[number];
 export const NETWORKS = ['mainnet', 'testnet'] as const;
 export type NetworkArg = (typeof NETWORKS)[number];
 
+/** Mirrors `WalletMode` in setup.ts. Duplicated rather than imported so this
+ * file stays free of anything that touches a wallet (see the note above about
+ * why tests import it in isolation). */
+export type WalletModeArg = 'connect' | 'generate' | 'import';
+
 export interface CliArgs {
   command: Command;
   /** `--help`/`-h`, from any position. Wins over everything else — never
@@ -38,6 +43,9 @@ export interface CliArgs {
    * `undefined` means "not specified" — each command falls back to the
    * configured network, then to mainnet. */
   network: NetworkArg | undefined;
+  /** Resolved from `--connect` / `--generate` / `--import-key`. `undefined`
+   * means "not specified" — setup asks, or generates when unattended. */
+  walletMode: WalletModeArg | undefined;
   importKey: string | undefined;
   skipHosts: boolean;
   checkBalance: boolean;
@@ -83,6 +91,10 @@ const OPTION_SPEC = {
   // default now, so "let me try this without spending money" is a common
   // intent and should not require knowing the name of a chain.
   testnet: { type: 'boolean' },
+  // Name step 1's path outright instead of answering its prompt. `--connect`
+  // is what the deprecated `dmemo connect` command now resolves to.
+  connect: { type: 'boolean' },
+  generate: { type: 'boolean' },
   'import-key': { type: 'string' },
   'skip-hosts': { type: 'boolean' },
   'check-balance': { type: 'boolean' },
@@ -99,6 +111,7 @@ const OPTION_SPEC = {
 const HELP_VERSION_DEFAULTS = {
   yes: false,
   network: undefined,
+  walletMode: undefined,
   importKey: undefined,
   skipHosts: false,
   checkBalance: false,
@@ -183,6 +196,24 @@ export function parseArgs(argv: string[]): CliArgs {
     network = 'testnet';
   }
 
+  // Wallet mode, validated the same way as `--network` and for the same
+  // reason: these flags choose which key ends up decrypting the user's
+  // memories, so two of them at once must be an error rather than a silent
+  // precedence rule nobody can predict.
+  const importKey = values['import-key'] as string | undefined;
+  const modeFlags: WalletModeArg[] = [];
+  if (values.connect) modeFlags.push('connect');
+  if (values.generate) modeFlags.push('generate');
+  if (importKey !== undefined) modeFlags.push('import');
+  if (modeFlags.length > 1) {
+    throw new CliUsageError(
+      `Pass only one of --connect, --generate, --import-key (got ${modeFlags
+        .map((m) => (m === 'import' ? '--import-key' : `--${m}`))
+        .join(' and ')})`
+    );
+  }
+  const walletMode = modeFlags[0];
+
   let usd: number | undefined;
   if (typeof values.usd === 'string') {
     // Accept "$25" as well as "25" — the flag is a dollar amount and people
@@ -200,7 +231,8 @@ export function parseArgs(argv: string[]): CliArgs {
     version: false,
     yes: Boolean(values.yes),
     network,
-    importKey: values['import-key'] as string | undefined,
+    walletMode,
+    importKey,
     skipHosts: Boolean(values['skip-hosts']),
     checkBalance: Boolean(values['check-balance']),
     scope: values.scope as string | undefined,
@@ -220,34 +252,33 @@ export function printHelp(): void {
       'dmemo — onboarding CLI for dMemo (private, encrypted, portable memory on 0G Storage)',
       '',
       'Usage:',
-      '  npx @dmemo/cli connect [options]    Connect a browser wallet; derive your memory key from a signature',
-      '  npx @dmemo/cli setup [options]      Generate/import a wallet, write config, wire up hosts',
+      '  npx @dmemo/cli setup [options]      Connect or generate a wallet, write config, wire up hosts',
       '  npx @dmemo/cli fund [options]       Add 0G to your dMemo account (card, any chain, or your wallet)',
       '  npx @dmemo/cli balance              Check the funding balance of the configured wallet',
       '  npx @dmemo/cli help | --help | -h   Show this message',
       '  npx @dmemo/cli --version | -v       Show the CLI version',
       '',
-      'Options for `connect`:',
-      '  --testnet            Shorthand for --network testnet',
-      '  --network <name>     mainnet (default) | testnet',
-      '  --scope <name>       Memory namespace (default: "default"). Part of the signed',
-      '                       message, so a different scope on the same wallet yields a',
-      '                       separate, isolated dMemo account.',
-      '  --fund-amount <n>    Amount (in 0G) the page offers to send (default: 0.05)',
-      '  --no-open            Print the URL instead of launching a browser',
-      '  --port <n>           Bind a fixed loopback port instead of an ephemeral one',
-      '  --skip-hosts         Skip host detection/install (wallet + config only)',
-      '  --force, -f          Replace a locally-generated wallet without confirming',
+      '  npx @dmemo/cli connect             (deprecated) alias for `setup --connect`',
       '',
       'Options for `setup`:',
-      '  --yes, -y            Non-interactive: generate a wallet, skip prompts',
+      '  --connect            Connect a browser wallet and derive the memory key from a',
+      '                       signature. The interactive default; pass it to skip the ask.',
+      '  --generate           Mint a local key instead — no wallet, no browser',
+      '  --scope <name>       Memory namespace for --connect (default: "default"). Part of',
+      '                       the signed message, so a different scope on the same wallet',
+      '                       yields a separate, isolated dMemo account.',
+      '  --fund-amount <n>    Amount (in 0G) the connect page offers to send (default: 0.05)',
+      '  --port <n>           Bind a fixed loopback port instead of an ephemeral one',
+      '  --yes, -y            Non-interactive: generate a wallet, skip prompts, no browser',
       '  --testnet            Shorthand for --network testnet (free, throwaway; faucet-funded)',
       '  --network <name>     mainnet (default) | testnet',
-      '  --import-key <hex>   Import an existing private key instead of generating one',
+      '  --import-key <hex>   Import an existing private key. For scripted installs and',
+      '                       restoring from a backup — prefer --connect interactively.',
       '  --new-wallet         Mint a new wallet even though one is configured (asks first)',
       '  --force, -f          Grant permission to replace the configured wallet',
       '  --skip-hosts         Skip host detection/install (wallet + config only)',
       '  --skip-funding       Do not offer to fund the wallet; just print how to',
+      '  --no-open            Print the URL instead of launching a browser',
       '  --check-balance      Report the balance out loud even when it is still zero',
       '',
       'Options for `fund`:',
@@ -271,6 +302,11 @@ export function printHelp(): void {
       '  0G Storage. Re-running `setup` keeps the wallet already on record; replacing',
       '  it takes an explicit flag plus confirmation, and always writes a timestamped',
       '  0600 backup of the old config next to it.',
+      '',
+      '  `--connect` never asks for, receives, or stores your wallet\'s private key.',
+      '  Your wallet signs one message; dMemo derives a SEPARATE account from that',
+      '  signature and uses it for storage. Signing with the same wallet and scope on',
+      '  another machine reproduces that same account, so your memories follow you.',
       '',
       'Env overrides (mainly for sandboxed testing — never used against a real install):',
       '  DMEMO_HOME   overrides ~/.dmemo',

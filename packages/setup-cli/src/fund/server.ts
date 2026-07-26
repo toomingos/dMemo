@@ -16,6 +16,7 @@
 import { renderFundPage } from './page.js';
 import { runLoopbackServer, str, STRICT_CSP, NotFoundError } from '../loopback.js';
 import { TOKENFLIGHT_ORIGIN } from '../network.js';
+import { status } from '../theme.js';
 
 export const FUND_CSP = `${STRICT_CSP}; frame-src ${TOKENFLIGHT_ORIGIN}`;
 
@@ -102,6 +103,7 @@ export async function runFundServer(opts: FundServerOptions): Promise<FundServer
     openBrowser: opts.openBrowser,
     log: opts.log,
     waitingMessage: 'Waiting for funds…',
+    waitingHint: 'Ctrl-C is safe — your wallet and config are already written.',
     invalidTokenMessage: 'Invalid or missing token. Re-run `npx @dmemo/cli fund`.',
     renderPage: (token) =>
       renderFundPage({
@@ -129,7 +131,7 @@ export async function runFundServer(opts: FundServerOptions): Promise<FundServer
         case '/api/sent': {
           const txHash = str(body.txHash);
           if (txHash) {
-            log(`  sent: ${txHash}`);
+            log(status('ok', 'sent', txHash));
             opts.onSent?.(txHash);
           }
           return { ok: true };
@@ -146,7 +148,7 @@ export async function runFundServer(opts: FundServerOptions): Promise<FundServer
 
         case '/api/error': {
           const message = str(body.message);
-          if (message) log(`  browser: ${message}`);
+          if (message) log(status('bad', 'browser', message));
           return { ok: true };
         }
 

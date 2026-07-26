@@ -1,9 +1,9 @@
 // Library surface (mainly for tests / programmatic use). The CLI entry
 // point is `cli.ts` (see `bin.dmemo` in package.json).
 export { runSetup } from './setup.js';
-export type { SetupOptions, SetupResult } from './setup.js';
-export { runConnect } from './connect.js';
-export type { ConnectOptions, ConnectResult } from './connect.js';
+export type { SetupOptions, SetupResult, WalletMode } from './setup.js';
+export { acquireWalletViaBrowser } from './connect/acquire.js';
+export type { AcquireOptions, AcquiredWallet } from './connect/acquire.js';
 export { derivationMessage, deriveAccountKey, verifyAndDerive, DERIVATION_VERSION } from './connect/derive.js';
 export type { DerivedAccount } from './connect/derive.js';
 export { installDetectedHosts } from './installHosts.js';

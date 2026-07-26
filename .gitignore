@@ -46,3 +46,8 @@ __pycache__/
 # Next.js build output (website/ lives on its own branch; its .gitignore
 # does not apply on main, and turbopack cache files exceed GitHub's 100MB limit)
 .next/
+
+# Vendored third-party agent skills (remotion-dev/skills) for the ignored
+# video/ project, plus the lockfile that pins them. Tooling, not source.
+.agents/
+skills-lock.json

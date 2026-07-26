@@ -42,7 +42,9 @@ function harness(overrides: Partial<ConnectServerOptions> = {}): Promise<Harness
         completed.push({ txHash: payload.txHash, skipped: payload.skipped === true });
       },
       log(line) {
-        const match = /Opening http:\/\/127\.0\.0\.1:(\d+)\/\?t=([0-9a-f]{64})/.exec(line);
+        // Match the URL itself, not the prose around it — see the same note
+        // in fund/server.test.ts.
+        const match = /http:\/\/127\.0\.0\.1:(\d+)\/\?t=([0-9a-f]{64})/.exec(line);
         if (match && !announced) {
           announced = true;
           resolveHarness({

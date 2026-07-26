@@ -46,6 +46,7 @@
 // 0G. That guidance still needs to be printed.
 
 import { execFileSync } from 'node:child_process';
+import { alreadyInstalled, failureText } from './idempotence.js';
 
 const PLUGIN_SPEC = '@dmemo/openclaw-plugin';
 const PLUGIN_ID = 'dmemo';
@@ -62,6 +63,9 @@ export interface OpenClawInstallResult {
    * didn't match — lets a caller tell "another plugin still owns the slot"
    * apart from "the verification read itself failed". */
   slotOwner?: string;
+  /** True when the plugin was already tracked and we replaced/updated it in
+   * place instead of failing — the re-run case. */
+  replaced?: boolean;
   output?: string;
   error?: string;
   /** What install does NOT set for the user (the wallet key) — always
@@ -114,20 +118,53 @@ export function installOpenClaw(env: NodeJS.ProcessEnv = process.env): OpenClawI
     };
   }
 
-  let output: string;
-  try {
-    output = execFileSync('openclaw', ['plugins', 'install', PLUGIN_SPEC], {
+  const run = (args: string[]): string =>
+    execFileSync('openclaw', args, {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
       env,
     });
+
+  let output: string;
+  let replaced = false;
+  try {
+    output = run(['plugins', 'install', PLUGIN_SPEC]);
   } catch (err) {
-    return {
-      attempted: true,
-      succeeded: false,
-      error: err instanceof Error ? err.message : String(err),
-      configGuidance: manualInstallInstructions(),
-    };
+    const detail = failureText(err);
+    if (!alreadyInstalled(detail)) {
+      return {
+        attempted: true,
+        succeeded: false,
+        error: err instanceof Error ? err.message : String(err),
+        configGuidance: manualInstallInstructions(),
+      };
+    }
+
+    // The plugin is already tracked — a re-run of `dmemo setup`, not a
+    // problem. OpenClaw names the two commands that do work in that state
+    // ("rerun install with '--force'", or "plugins update"), so run them
+    // rather than surfacing its refusal as a failed step. `--force` first:
+    // it replaces the checkout with exactly the spec we asked for, where
+    // `update` re-resolves and may no-op if the registry looks unchanged.
+    replaced = true;
+    try {
+      output = run(['plugins', 'install', PLUGIN_SPEC, '--force']);
+    } catch (forceErr) {
+      try {
+        output = run(['plugins', 'update', PLUGIN_SPEC]);
+      } catch {
+        return {
+          attempted: true,
+          succeeded: false,
+          error:
+            `the plugin is already installed, and neither replacing it ` +
+            `(\`openclaw plugins install ${PLUGIN_SPEC} --force\`) nor updating it ` +
+            `(\`openclaw plugins update ${PLUGIN_SPEC}\`) worked: ` +
+            (forceErr instanceof Error ? forceErr.message : String(forceErr)),
+          configGuidance: manualInstallInstructions(),
+        };
+      }
+    }
   }
 
   try {
@@ -138,6 +175,7 @@ export function installOpenClaw(env: NodeJS.ProcessEnv = process.env): OpenClawI
       succeeded: slotClaimed,
       slotClaimed,
       slotOwner,
+      replaced,
       output,
       error: slotClaimed
         ? undefined
@@ -149,6 +187,7 @@ export function installOpenClaw(env: NodeJS.ProcessEnv = process.env): OpenClawI
     return {
       attempted: true,
       succeeded: false,
+      replaced,
       output,
       error:
         `install reported success, but verifying ${MEMORY_SLOT_PATH} failed: ` +

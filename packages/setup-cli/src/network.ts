@@ -3,8 +3,9 @@
 // a config value (one env-var switch, per D14) but this CLI never prints a
 // mainnet faucet link — there isn't one.
 
-import { JsonRpcProvider, formatEther } from 'ethers';
+import { JsonRpcProvider, Network, formatEther } from 'ethers';
 import type { NetworkName } from './dmemoConfig.js';
+import { dim, indent, wrap } from './theme.js';
 
 // TASKS.md "Global constants" table (live-verified July 2026).
 export const TESTNET_RPC_URL = 'https://evmrpc-testnet.0g.ai';
@@ -12,9 +13,20 @@ export const MAINNET_RPC_URL = 'https://evmrpc.0g.ai';
 export const TESTNET_CHAIN_ID = 16602;
 export const MAINNET_CHAIN_ID = 16661;
 export const FAUCET_URL = 'https://faucet.0g.ai';
+export const MAINNET_EXPLORER_URL = 'https://chainscan.0g.ai';
+export const TESTNET_EXPLORER_URL = 'https://chainscan-galileo.0g.ai';
 
 export function rpcUrlFor(network: NetworkName): string {
   return network === 'mainnet' ? MAINNET_RPC_URL : TESTNET_RPC_URL;
+}
+
+/**
+ * Block explorer for `wallet_addEthereumChain`. Optional in EIP-3085, but a
+ * chain added without one gives the user no way to click through to the
+ * funding transaction they just signed — the wallet renders a dead tx hash.
+ */
+export function blockExplorerFor(network: NetworkName): string {
+  return network === 'mainnet' ? MAINNET_EXPLORER_URL : TESTNET_EXPLORER_URL;
 }
 
 export function chainIdFor(network: NetworkName): number {
@@ -32,14 +44,43 @@ export function chainIdHexFor(network: NetworkName): string {
 
 export const CURRENCY_SYMBOL = '0G';
 
+/**
+ * The single answer to "how do I get funds on testnet". Deliberately the ONLY
+ * instruction any testnet path prints: pairing this with a generic "send 0G to
+ * <address>, or run `dmemo fund` again" gave two different answers to one
+ * question, and the generic one is useless here — there is nothing to send
+ * from on a chain whose only source of funds is this faucet.
+ *
+ * Callers indent it as a block; the line breaks carry meaning, so it goes
+ * through `indent()`, never `wrap()`.
+ */
 export function faucetInstructions(address: string): string {
   return [
-    `Fund your wallet on 0G testnet (Galileo, chain ${TESTNET_CHAIN_ID}):`,
+    `Testnet faucet — the only rail that reaches chain ${TESTNET_CHAIN_ID}:`,
     `  1. Open ${FAUCET_URL}`,
-    `  2. Paste your wallet address: ${address}`,
-    `  3. Claim (0.1 0G/day) — dMemo's flush cost is ~0.0012-0.003 0G per`,
-    `     write, so a single faucet claim funds many memory writes.`,
+    `  2. Paste your address: ${address}`,
+    `  3. Claim — 0.1 0G/day, and one claim covers dozens of memory writes`,
+    `     (each costs ~${COST_PER_WRITE_0G_LOW}-${COST_PER_WRITE_0G_HIGH} 0G).`,
   ].join('\n');
+}
+
+/**
+ * The one and only answer to "the account is still empty, now what". Every
+ * path that ends unfunded — `setup --skip-funding`, `setup --yes`, declining
+ * the prompt, closing the funding page, a poll that never saw funds — calls
+ * exactly this, so a user cannot be told two different things depending on
+ * which door they came through.
+ *
+ * Returns a formatted, indented block ready to hand straight to `log()`.
+ */
+export function fundingHelp(address: string, network: NetworkName): string {
+  if (network === 'testnet') return dim(indent(faucetInstructions(address), 4));
+  return dim(
+    wrap(
+      `Run \`npx @dmemo/cli fund\` to add ${CURRENCY_SYMBOL} — card, Apple Pay, crypto from another chain, or a wallet you already have. \`npx @dmemo/cli balance\` checks the account any time.`,
+      4
+    )
+  );
 }
 
 // --- Funding rails (`dmemo fund`) ---------------------------------------
@@ -143,7 +184,13 @@ export async function checkBalance(
   opts: { rpcUrl?: string; timeoutMs?: number } = {}
 ): Promise<BalanceCheckResult> {
   const rpcUrl = opts.rpcUrl ?? rpcUrlFor(network);
-  const provider = new JsonRpcProvider(rpcUrl, undefined, { staticNetwork: true });
+  // A concrete static network, not `staticNetwork: true`: we already know the
+  // chain id, so this skips the eth_chainId detection round-trip entirely.
+  // `true` still detects once, and against an unreachable RPC that detection
+  // retries and prints its own warning before our timeout ever fires.
+  const provider = new JsonRpcProvider(rpcUrl, Network.from(chainIdFor(network)), {
+    staticNetwork: true,
+  });
   const timeoutMs = opts.timeoutMs ?? 8000;
 
   const balanceWei = await Promise.race([

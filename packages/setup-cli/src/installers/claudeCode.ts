@@ -16,6 +16,7 @@
 // live run today WILL fail here until a human completes RELEASE.md.
 
 import { execFileSync } from 'node:child_process';
+import { alreadyInstalled, failureText } from './idempotence.js';
 
 const MARKETPLACE_SOURCE = 'dmemo-ai/claude-dmemo';
 const MARKETPLACE_NAME = 'dmemo-plugins';
@@ -24,6 +25,10 @@ const PLUGIN_ID = 'dmemo';
 export interface ClaudeCodeInstallResult {
   attempted: boolean;
   succeeded: boolean;
+  /** True when the marketplace and/or plugin were already there — a re-run of
+   * `dmemo setup`. Still `succeeded`, because the end state is the one we
+   * wanted. */
+  alreadyPresent?: boolean;
   output?: string;
   error?: string;
   manualInstructions: string;
@@ -57,35 +62,56 @@ function localDevInstructions(pluginDir: string): string {
 }
 
 export function installClaudeCode(env: NodeJS.ProcessEnv = process.env): ClaudeCodeInstallResult {
-  let attempted = false;
-  let succeeded = false;
-  let output: string | undefined;
-  let error: string | undefined;
-
   try {
     execFileSync('claude', ['--version'], { stdio: 'ignore', env });
-    attempted = true;
-    const add = execFileSync('claude', ['plugin', 'marketplace', 'add', MARKETPLACE_SOURCE], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env,
-    });
-    const install = execFileSync(
-      'claude',
-      ['plugin', 'install', `${PLUGIN_ID}@${MARKETPLACE_NAME}`],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env }
-    );
-    output = `${add}\n${install}`;
-    succeeded = true;
   } catch (err) {
-    error = err instanceof Error ? err.message : String(err);
+    return {
+      attempted: false,
+      succeeded: false,
+      error: err instanceof Error ? err.message : String(err),
+      manualInstructions: manualInstructions(),
+      localDevInstructions,
+    };
   }
 
+  /**
+   * Runs one `claude plugin …` step. "Already added" / "already installed" is
+   * success with `already: true` — re-running setup must reach the same end
+   * state as the first run, and the previous single try/catch turned the
+   * second run of a working install into a reported failure.
+   */
+  const run = (args: string[]): { ok: boolean; text: string; already: boolean } => {
+    try {
+      return {
+        ok: true,
+        text: execFileSync('claude', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env }),
+        already: false,
+      };
+    } catch (err) {
+      const detail = failureText(err);
+      if (alreadyInstalled(detail)) return { ok: true, text: detail.trim(), already: true };
+      return { ok: false, text: err instanceof Error ? err.message : String(err), already: false };
+    }
+  };
+
+  const add = run(['plugin', 'marketplace', 'add', MARKETPLACE_SOURCE]);
+  if (!add.ok) {
+    return {
+      attempted: true,
+      succeeded: false,
+      error: add.text,
+      manualInstructions: manualInstructions(),
+      localDevInstructions,
+    };
+  }
+
+  const install = run(['plugin', 'install', `${PLUGIN_ID}@${MARKETPLACE_NAME}`]);
   return {
-    attempted,
-    succeeded,
-    output,
-    error,
+    attempted: true,
+    succeeded: install.ok,
+    alreadyPresent: add.already || install.already,
+    output: install.ok ? `${add.text}\n${install.text}` : undefined,
+    error: install.ok ? undefined : install.text,
     manualInstructions: manualInstructions(),
     localDevInstructions,
   };

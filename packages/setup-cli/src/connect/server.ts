@@ -35,6 +35,9 @@ export interface ConnectServerOptions {
   chainIdHex: string;
   chainName: string;
   rpcUrl: string;
+  /** Handed to `wallet_addEthereumChain` so a newly-added chain isn't left
+   * without a way to view the funding transaction. */
+  blockExplorerUrl?: string;
   currencySymbol: string;
   fundAmountLabel: string;
   fundAmountWeiHex: string;
@@ -65,6 +68,11 @@ export async function runConnectServer(opts: ConnectServerOptions): Promise<Conn
     openBrowser: opts.openBrowser,
     log: opts.log,
     waitingMessage: 'Waiting for your wallet…',
+    // Deliberately NOT fund's "your config is already written" — this runs as
+    // step 1 of setup, before anything is on disk. What makes Ctrl-C safe here
+    // is that nothing has been spent or signed yet, and reconnecting the same
+    // wallet later lands on exactly the same account.
+    waitingHint: 'Ctrl-C is safe — nothing has been written or spent yet, and the same wallet gets you the same account whenever you come back.',
     invalidTokenMessage: 'Invalid or missing token. Re-run `npx @dmemo/cli connect`.',
     renderPage: (token) =>
       renderConnectPage({
@@ -74,6 +82,7 @@ export async function runConnectServer(opts: ConnectServerOptions): Promise<Conn
         chainIdHex: opts.chainIdHex,
         chainName: opts.chainName,
         rpcUrl: opts.rpcUrl,
+        blockExplorerUrl: opts.blockExplorerUrl,
         currencySymbol: opts.currencySymbol,
         fundAmountLabel: opts.fundAmountLabel,
         fundAmountWeiHex: opts.fundAmountWeiHex,

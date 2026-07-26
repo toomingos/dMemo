@@ -21,11 +21,18 @@
 import http from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { dim, lime, symbols, wrap } from './theme.js';
 
 /** Default CSP: the page talks only to its own origin and loads no
- * third-party anything. `fund` widens this deliberately (see FUND_CSP). */
+ * third-party anything. `fund` widens this deliberately (see FUND_CSP).
+ *
+ * `font-src data:` is what lets the pages embed the site's typeface as a
+ * data: URI (see `web/theme.ts`). It permits no network origin — the whole
+ * point is that the pages look like dmemo.ai WITHOUT fetching anything from
+ * it. */
 export const STRICT_CSP =
-  "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'";
+  "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; " +
+  "img-src data:; font-src data:; connect-src 'self'";
 
 export type Send = (status: number, body: unknown, contentType?: string) => void;
 
@@ -53,6 +60,10 @@ export interface LoopbackServerOptions<T> {
   log?: (line: string) => void;
   /** Lines printed once the server is listening, after the URL. */
   waitingMessage?: string;
+  /** The reassurance under `waitingMessage`. Callers MUST state what is
+   * actually true of their own flow at this moment — `fund` runs after the
+   * config is on disk, `connect` runs as step 1 of setup, before it. */
+  waitingHint?: string;
   /** Handles `POST /api/<name>`. Whatever it returns is sent as a 200 JSON
    * body; throwing sends a 400 with the error message. */
   handle: (ctx: LoopbackHandlerContext<T>) => Promise<unknown>;
@@ -217,7 +228,11 @@ export async function runLoopbackServer<T>(opts: LoopbackServerOptions<T>): Prom
     });
 
     let port = 0;
-    server.on('error', (err) => finish(() => reject(err)));
+    // Bind failures are only reachable when a caller pinned `--port`; the
+    // default (0) always gets a free ephemeral port. Node's raw
+    // `listen EADDRINUSE: address already in use 127.0.0.1:8899` names no
+    // remedy, and the remedy here is simply to drop the flag.
+    server.on('error', (err) => finish(() => reject(bindError(err, opts.port))));
     server.listen(opts.port ?? 0, '127.0.0.1', () => {
       const addr = server.address();
       if (!addr || typeof addr === 'string') {
@@ -237,9 +252,19 @@ export async function runLoopbackServer<T>(opts: LoopbackServerOptions<T>): Prom
       timer.unref?.();
 
       if (opts.openBrowser !== false) openInBrowser(target);
-      log(`Opening ${target}`);
-      log('(If your browser did not open, paste that URL into it.)\n');
-      if (opts.waitingMessage) log(opts.waitingMessage);
+      // Indented and dimmed to sit under the step that opened it, rather than
+      // reading as a fresh top-level event. The URL itself stays undimmed:
+      // it is the one string on screen the user may have to select and paste.
+      // padEnd(7) matches the key column `fund` prints its account/balance
+      // rows in, so the URL lines up with the values above it.
+      log(`  ${dim('opening'.padEnd(7))}  ${target}`);
+      log(dim(wrap('If your browser did not open, paste that URL into it.', 4)));
+      log('');
+      if (opts.waitingMessage) {
+        log(`  ${lime(symbols().bullet)} ${opts.waitingMessage}`);
+        if (opts.waitingHint) log(dim(wrap(opts.waitingHint, 4)));
+        log('');
+      }
     });
   });
 }
@@ -267,6 +292,25 @@ export function escapeHtml(s: string): string {
  * inside the data terminate the block early. */
 export function embedJson(value: unknown): string {
   return JSON.stringify(value).replace(/</g, '\\u003c');
+}
+
+/** Rewrites a listen failure into something actionable. Anything we don't
+ * recognize passes through untouched — a wrong guess is worse than the raw
+ * errno. */
+function bindError(err: unknown, requestedPort: number | undefined): unknown {
+  const code = (err as NodeJS.ErrnoException | null)?.code;
+  if (!requestedPort) return err;
+  if (code === 'EADDRINUSE') {
+    return new Error(
+      `port ${requestedPort} is already in use. Drop \`--port\` to let dMemo pick a free one, or free the port first (\`lsof -nP -iTCP:${requestedPort} -sTCP:LISTEN\`).`
+    );
+  }
+  if (code === 'EACCES') {
+    return new Error(
+      `not allowed to bind port ${requestedPort}. Ports below 1024 need elevated privileges — drop \`--port\` or pick one above 1024.`
+    );
+  }
+  return err;
 }
 
 /** Thrown by a handler to signal "not found" without the generic 400 path. */
