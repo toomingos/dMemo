@@ -47,7 +47,18 @@ export function installDetectedHosts(
   }
   if (detected.opencode) {
     hosts.opencode = installOpenCode(env);
-    log(`OpenCode: ${hosts.opencode.created ? 'created' : 'updated'} ${hosts.opencode.configPath}`);
+    if (hosts.opencode.succeeded) {
+      log(
+        `OpenCode: plugin installed (${hosts.opencode.specUsed}${
+          hosts.opencode.usedLocalFallback ? ', local monorepo fallback' : ''
+        }).`
+      );
+    } else {
+      if (hosts.opencode.attempted) {
+        log(`OpenCode: install did not complete as expected (non-fatal): ${hosts.opencode.error}`);
+      }
+      log(hosts.opencode.manualInstructions);
+    }
   }
   if (detected.claudeCode) {
     hosts.claudeCode = installClaudeCode(env);
@@ -55,7 +66,16 @@ export function installDetectedHosts(
   }
   if (detected.openclaw) {
     hosts.openclaw = installOpenClaw(env);
-    log(hosts.openclaw.succeeded ? 'OpenClaw: plugin installed.' : hosts.openclaw.manualInstructions);
+    if (hosts.openclaw.succeeded) {
+      log('OpenClaw: plugin installed, memory slot claimed.');
+    } else if (hosts.openclaw.attempted) {
+      // Binary was there and `plugins install` ran, but something after
+      // that didn't check out (install itself failed, or the slot
+      // verification says another plugin still owns it) — surface the
+      // specific reason rather than a generic "not installed".
+      log(`OpenClaw: install did not complete as expected (non-fatal): ${hosts.openclaw.error}`);
+    }
+    log(hosts.openclaw.configGuidance);
   }
   if (!detected.codex && !detected.opencode && !detected.claudeCode && !detected.openclaw) {
     log('No supported host detected on this machine — memory config is ready for whenever you install one.');

@@ -45,12 +45,16 @@ export function claudeHome(env: NodeJS.ProcessEnv = process.env): string {
   return path.join(homedir(env), '.claude');
 }
 
+// OpenCode itself loads and merges THREE files per config directory —
+// `config.json`, `opencode.json`, and `opencode.jsonc` (verified from a live
+// `opencode serve` startup log, which lists all three as config sources) —
+// so there is no single canonical "the opencode config file" path to return
+// here. Detection below only needs the directory's existence, and the
+// installer (`installers/opencode.ts`) no longer writes a config file
+// itself — it shells out to `opencode plugin ... --global`, which decides
+// for itself which of the three files to patch.
 export function opencodeConfigDir(env: NodeJS.ProcessEnv = process.env): string {
   return path.join(env.XDG_CONFIG_HOME ?? path.join(homedir(env), '.config'), 'opencode');
-}
-
-export function opencodeConfigPath(env: NodeJS.ProcessEnv = process.env): string {
-  return path.join(opencodeConfigDir(env), 'opencode.json');
 }
 
 export function openclawHome(env: NodeJS.ProcessEnv = process.env): string {

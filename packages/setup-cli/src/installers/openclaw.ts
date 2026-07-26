@@ -1,63 +1,154 @@
-// T4.1 step 4 — OpenClaw leg. `research/openclaw.md` documents
-// `openclaw plugins install @<org>/<pkg>` as the install command, so this
-// installer attempts it best-effort (non-fatal — the package isn't
-// published to npm yet, so a live run today will legitimately fail until a
-// human completes RELEASE.md).
+// T4.1 step 4 — OpenClaw leg. `openclaw plugins install <path-or-spec>` is
+// the documented, scriptable install command
+// (`$REPOS/openclaw/docs/cli/plugins.md:36`), so this installer runs it
+// best-effort — non-fatal, because the package isn't published to npm yet,
+// so a live run today will legitimately fail until a human completes
+// RELEASE.md.
 //
-// Unlike OpenCode's `opencode.json` (a confirmed, documented global-config
-// path/shape), OpenClaw's config *file* location and on-disk format for
-// `plugins.slots.memory` / `plugins.entries.dmemo.config` were not pinned
-// down to a specific path in the T3.3 research pass (`research/openclaw.md`
-// cites the *keys*, e.g. `plugins.slots.memory`, via doc line references,
-// not a concrete `~/.openclaw/config.*` file to parse-and-merge). Rather
-// than guess a schema and risk corrupting a user's real OpenClaw config,
-// this installer prints the exact manual steps (mirrors
-// `packages/openclaw-plugin/README.md`) instead of writing a file. This is
-// a deliberate, narrower scope than the Codex/OpenCode installers — see the
-// Phase 4 final report "deviations" section.
+// This file used to ALSO print manual instructions telling the user to
+// hand-edit `plugins.slots.memory = "dmemo"` and
+// `plugins.entries.dmemo.config`, on the theory that OpenClaw's config shape
+// for slot selection "wasn't pinned down" by research. That justification is
+// now disproven by source, not just assumed away:
+//
+//   - Docs, describing the equivalent official memory plugin: "Installing it
+//     writes the plugin entry, enables it, and switches
+//     `plugins.slots.memory` to `memory-lancedb`. If another plugin
+//     currently owns the memory slot, that plugin is disabled with a
+//     warning." (`$REPOS/openclaw/docs/plugins/memory-lancedb.md:24-27`)
+//   - Mechanism: install runs `applySlotSelectionForPlugin` (per-plugin
+//     entry point, `$REPOS/openclaw/src/plugins/slot-selection.ts`), which
+//     looks up the plugin's declared `kind` and calls
+//     `applyExclusiveSlotSelection` (`$REPOS/openclaw/src/plugins/slots.ts`)
+//     to point `plugins.slots.memory` at that plugin's id and disable
+//     whichever plugin owned the slot before.
+//   - Our manifest (`packages/openclaw-plugin/openclaw.plugin.json`) already
+//     declares `"kind": "memory"`, exactly like mem0's
+//     (`$REPOS/mem0/integrations/openclaw/openclaw.plugin.json`).
+//
+// So `openclaw plugins install @dmemo/openclaw-plugin` claims the memory
+// slot as a side effect of installing — no manual config-editing step is
+// needed for that part. This installer no longer prints those instructions.
+//
+// It DOES still verify the slot was actually claimed rather than assume it,
+// because "install exited 0" and "the slot points at us" are not the same
+// fact, and the whole reason this file is being rewritten is that a past
+// version of this codebase asserted something about OpenClaw's config
+// behavior without checking. The real way to check a live config value
+// non-interactively is `openclaw config get <path> --json`
+// (`$REPOS/openclaw/src/cli/config-cli.ts`, `runConfigGet` — prints the
+// value as JSON on stdout, `1` exit / `{"error": ...}` on a missing path),
+// so we read `plugins.slots.memory` back after install and compare it to our
+// plugin id.
+//
+// The one thing install genuinely does NOT set — because it is a user
+// secret, not install's job — is the wallet key the plugin needs to talk to
+// 0G. That guidance still needs to be printed.
 
 import { execFileSync } from 'node:child_process';
 
 const PLUGIN_SPEC = '@dmemo/openclaw-plugin';
+const PLUGIN_ID = 'dmemo';
+const MEMORY_SLOT_PATH = 'plugins.slots.memory';
 
 export interface OpenClawInstallResult {
   attempted: boolean;
+  /** True only once install ran AND the memory slot was verified to point at
+   * `dmemo` — matching the "verify, don't assume" behavior described above. */
   succeeded: boolean;
+  /** Set once the post-install slot check ran, regardless of outcome. */
+  slotClaimed?: boolean;
+  /** What `plugins.slots.memory` actually reads as, when the check ran but
+   * didn't match — lets a caller tell "another plugin still owns the slot"
+   * apart from "the verification read itself failed". */
+  slotOwner?: string;
   output?: string;
   error?: string;
-  manualInstructions: string;
+  /** What install does NOT set for the user (the wallet key) — always
+   * present so the setup CLI can print it regardless of outcome. */
+  configGuidance: string;
 }
 
-function manualInstructions(): string {
+function configGuidance(): string {
   return [
-    'OpenClaw: install + register the dMemo memory plugin:',
-    `  openclaw plugins install ${PLUGIN_SPEC}`,
-    '  Then add to your OpenClaw config (see packages/openclaw-plugin/README.md):',
-    '    plugins.slots.memory = "dmemo"',
-    '    plugins.entries.dmemo.config = {',
-    '      privateKey: "${DMEMO_PRIVATE_KEY}",  // or paste directly (not recommended)',
-    '      scope: "default",',
-    '      network: "testnet"',
-    '    }',
-    '  dMemo already wrote ~/.dmemo/config.json with DMEMO_PRIVATE_KEY — export it',
-    '  into the environment OpenClaw runs in, or reference the key value directly.',
+    'OpenClaw: set the wallet key the plugin needs to talk to 0G (install',
+    'claims the memory slot for you, but never sets secrets):',
+    `  plugins.entries.${PLUGIN_ID}.config.privateKey`,
+    '  dMemo already wrote ~/.dmemo/config.json with DMEMO_PRIVATE_KEY — export',
+    '  it into the environment OpenClaw runs in, or reference it with a',
+    '  SecretRef instead of pasting the key value directly',
+    '  (see packages/openclaw-plugin/README.md).',
   ].join('\n');
 }
 
-export function installOpenClaw(env: NodeJS.ProcessEnv = process.env): OpenClawInstallResult {
-  let attempted = false;
-  let succeeded = false;
-  let output: string | undefined;
-  let error: string | undefined;
+function manualInstallInstructions(): string {
+  return [
+    'OpenClaw: install the dMemo memory plugin:',
+    `  openclaw plugins install ${PLUGIN_SPEC}`,
+    '  (this claims the memory slot automatically; no config hand-editing',
+    '  needed for that part)',
+    '',
+    configGuidance(),
+  ].join('\n');
+}
 
+function readMemorySlotOwner(env: NodeJS.ProcessEnv): string | undefined {
+  const raw = execFileSync('openclaw', ['config', 'get', MEMORY_SLOT_PATH, '--json'], {
+    encoding: 'utf8',
+    env,
+  });
+  const value = JSON.parse(raw);
+  return typeof value === 'string' ? value : undefined;
+}
+
+export function installOpenClaw(env: NodeJS.ProcessEnv = process.env): OpenClawInstallResult {
   try {
     execFileSync('openclaw', ['--version'], { stdio: 'ignore', env });
-    attempted = true;
-    output = execFileSync('openclaw', ['plugins', 'install', PLUGIN_SPEC], { encoding: 'utf8', env });
-    succeeded = true;
   } catch (err) {
-    error = err instanceof Error ? err.message : String(err);
+    return {
+      attempted: false,
+      succeeded: false,
+      error: err instanceof Error ? err.message : String(err),
+      configGuidance: manualInstallInstructions(),
+    };
   }
 
-  return { attempted, succeeded, output, error, manualInstructions: manualInstructions() };
+  let output: string;
+  try {
+    output = execFileSync('openclaw', ['plugins', 'install', PLUGIN_SPEC], { encoding: 'utf8', env });
+  } catch (err) {
+    return {
+      attempted: true,
+      succeeded: false,
+      error: err instanceof Error ? err.message : String(err),
+      configGuidance: manualInstallInstructions(),
+    };
+  }
+
+  try {
+    const slotOwner = readMemorySlotOwner(env);
+    const slotClaimed = slotOwner === PLUGIN_ID;
+    return {
+      attempted: true,
+      succeeded: slotClaimed,
+      slotClaimed,
+      slotOwner,
+      output,
+      error: slotClaimed
+        ? undefined
+        : `openclaw plugins install reported success, but ${MEMORY_SLOT_PATH} is ` +
+          `"${slotOwner}", not "${PLUGIN_ID}" — the memory slot was not claimed.`,
+      configGuidance: configGuidance(),
+    };
+  } catch (err) {
+    return {
+      attempted: true,
+      succeeded: false,
+      output,
+      error:
+        `install reported success, but verifying ${MEMORY_SLOT_PATH} failed: ` +
+        (err instanceof Error ? err.message : String(err)),
+      configGuidance: configGuidance(),
+    };
+  }
 }
