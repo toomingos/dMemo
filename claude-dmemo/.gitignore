@@ -1,0 +1,14 @@
+# This directory is published as its own repo (`dmemo-ai/claude-dmemo`, the
+# Claude Code plugin marketplace) as well as living inside the dMemo
+# monorepo. It therefore needs its own ignore rules: once someone runs
+# `git init` in here, the monorepo's root .gitignore no longer applies.
+
+# `plugin/scripts/node_modules` is a symlink the plugin creates at runtime,
+# pointing at the machine-local native-deps directory (see
+# packages/node-adapter/src/lib/native-bootstrap.ts, linkNodeModulesShim).
+# It is regenerated on every run and must never be committed — a committed
+# copy ships an absolute path into whoever built it last.
+# No trailing slash: a directory-only pattern does not match a symlink.
+node_modules
+
+.DS_Store

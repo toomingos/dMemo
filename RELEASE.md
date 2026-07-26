@@ -8,46 +8,89 @@ publish has ever been executed as part of building this pipeline.
 
 ## 0. Pre-flight (once)
 
-- [ ] `npm whoami` — confirm you're logged into the correct npm account/org
-      that owns the `@dmemo` scope (or claim the scope first: the first
-      publish of any `@dmemo/*` package creates the org-scoped package;
-      npm scopes themselves are claimed implicitly by first publish, but if
-      you want a shared npm **organization** named `dmemo` for multiple
-      publishers, create that at https://www.npmjs.com/org/create first).
+- [x] **An npm organization named `dmemo` is a hard prerequisite, not an
+      optional nicety.** An earlier version of this checklist said scopes
+      are "claimed implicitly by first publish" — that is wrong and would
+      have failed the release at package one. A scope belongs to you
+      automatically only when it matches your npm *username*; `@dmemo` does
+      not match, so without an org named `dmemo` the first `@dmemo/*`
+      publish is rejected outright. Five of the six packages are `@dmemo/*`.
+      Org created 2026-07-26 at https://www.npmjs.com/org/create (Free plan
+      — public packages only, which is what we want).
+- [ ] `npm whoami` — confirm you're logged in, and `npm org ls dmemo` —
+      confirm your account is a member of the `dmemo` org with publish
+      rights. `npm login` is interactive and cannot be run unattended.
 - [ ] Confirm 2FA/OTP is set up on the npm account if publishes require it
       (pass `--otp=123456` to `scripts/publish.mjs` if so).
-- [ ] Decide the real GitHub org/user that will own the source repos. This
-      repo's `package.json` `repository` fields and the plugin marketplace
-      installer both hardcode `dmemo-ai` (repos `dmemo-ai/dmemo` and
-      `dmemo-ai/claude-dmemo`) — if the real org differs, grep-replace
-      `dmemo-ai` across `packages/*/package.json` and
-      `packages/setup-cli/src/installers/claudeCode.ts`'s
-      `MARKETPLACE_SOURCE` constant before publishing, or the marketplace
-      install command and repo links will point at a nonexistent/wrong repo.
+- [x] **GitHub org: `dmemo-ai`** (decided 2026-07-26). Repos `dmemo-ai/dmemo`
+      and `dmemo-ai/claude-dmemo`. This matches what every `package.json`
+      `repository` field, `claude-dmemo/plugin/.claude-plugin/plugin.json`,
+      and `MARKETPLACE_SOURCE` in
+      `packages/setup-cli/src/installers/claudeCode.ts` already hardcode —
+      audited 2026-07-26, no grep-replace needed. The org does not exist yet;
+      creating it is step 1.
+- [x] **Release version: `0.1.0` for all six npm packages and
+      `plugin.json`** (decided 2026-07-26). `packages/setup-cli` was at
+      `0.2.0` and is moved down to match; nothing is published, so no
+      version is being reused.
+- [ ] Registry names confirmed free as of 2026-07-26 — `dmemo` and every
+      `@dmemo/*` return 404 on npm, `dmemo-hermes` returns 404 on PyPI.
+      Re-check right before publishing if much time has passed.
 
 ## 1. Create and push the main GitHub repo
 
-- [ ] Create `github.com/dmemo-ai/dmemo` (or your real org/name).
-- [ ] `git init` this monorepo (`/Users/tomasdomingos/dMemo`) if not already
-      a git repo, commit everything, add the remote, push `main`.
+- [x] `dmemo-ai` GitHub org created 2026-07-26 (free plan).
+- [x] **Done 2026-07-26.** `toomingos/dMemo` was *transferred* (not
+      re-pushed) into the org and renamed to lowercase in the same
+      operation:
+      `gh api -X POST repos/toomingos/dMemo/transfer -f new_owner=dmemo-ai -f new_name=dmemo`
+      Transfer rather than a fresh push, so history/issues/stars survive and
+      GitHub leaves a permanent redirect from the old URL — verified, the
+      old path now resolves to `dmemo-ai/dmemo`. Renamed to lowercase
+      because all seven `package.json` `repository` fields hardcode
+      `github.com/dmemo-ai/dmemo`, and npm echoes that URL verbatim on the
+      package page. Note the transfer API is **asynchronous** — it returns
+      the *old* `full_name` with a 202; re-query `repos/dmemo-ai/dmemo` to
+      confirm rather than trusting the response body.
+- [x] Local `origin` re-pointed to `https://github.com/dmemo-ai/dmemo.git`.
+- [ ] Push the pending working-tree changes (installer rewrites, RELEASE.md,
+      `.gitignore` fix, `claude-dmemo/` LICENSE+README). Nothing is pushed
+      yet — the repo on GitHub is still at commit `5c0d3b7`.
 - [ ] Confirm `LICENSE`, `TASKS.md`, `packages/*` all land in the repo as
       expected (nothing in `.gitignore` should exclude source you need).
 
 ## 2. Create and push the Claude Code marketplace repo
 
-- [ ] Create `github.com/dmemo-ai/claude-dmemo` (must match
+- [x] `github.com/dmemo-ai/claude-dmemo` created 2026-07-26, public, and
+      currently **empty** (no commits pushed yet). Matches
       `MARKETPLACE_SOURCE` in `packages/setup-cli/src/installers/claudeCode.ts`
       and `homepage`/`repository` in
-      `claude-dmemo/plugin/.claude-plugin/plugin.json`).
+      `claude-dmemo/plugin/.claude-plugin/plugin.json`.
 - [ ] `cd claude-dmemo && git init`, commit, push. This repo's layout is
       already correct and verified (see step 5 below) — it just needs to
       exist on GitHub and be public so `claude plugin marketplace add
-      dmemo-ai/claude-dmemo` can clone it.
+      dmemo-ai/claude-dmemo` can clone it. **Claude Code requires
+      `.claude-plugin/marketplace.json` at the repo ROOT**, which is why this
+      has to be its own repo and cannot be resolved as a subdirectory of the
+      monorepo.
 - [ ] Rebuild the vendored hook scripts fresh right before this push:
       `pnpm --filter @dmemo/node-adapter run build` (writes into
       `claude-dmemo/plugin/scripts/`) — do this from the monorepo root so
       the shipped `.cjs` bundles reflect the exact code being released, not
       a stale build.
+- [ ] Confirm `plugin/scripts/node_modules` is NOT in the commit. It is a
+      symlink the plugin regenerates at runtime pointing at the builder's
+      own machine (`native-bootstrap.ts`, `linkNodeModulesShim`), and it was
+      committed by accident once already — the root `.gitignore`'s
+      `node_modules/` pattern is directory-only and does not match a
+      symlink. `claude-dmemo/.gitignore` now covers this in both contexts
+      (monorepo and standalone). Verified 2026-07-26: a fresh `git init` +
+      `git add -A` in a copy of this directory tracks 17 files and zero
+      `node_modules` entries.
+- [x] `LICENSE` (MIT, copied from the monorepo root) and `README.md` were
+      added 2026-07-26. The monorepo's copies do not travel with this
+      directory once it is its own repo, and a public marketplace repo with
+      neither is a bad first impression.
 
 ## 3. npm login
 
@@ -63,23 +106,32 @@ cd /Users/tomasdomingos/dMemo
 node scripts/publish.mjs
 ```
 
-- [ ] Confirm all 6 packages print `(dry-run)` tarball listings with no
+- [x] Confirm all 6 packages print `(dry-run)` tarball listings with no
       errors, in this order: `@dmemo/blob-spec` → `@dmemo/core` →
       `@dmemo/sdk-wrappers` → `@dmemo/opencode-plugin` →
       `@dmemo/openclaw-plugin` → `dmemo` (the setup-cli package, published
       as bare `dmemo` per its `package.json` `name` field, not
-      `@dmemo/setup-cli`).
-- [ ] Spot-check each tarball's file list for the files you expect (`dist/`,
+      `@dmemo/setup-cli`). **Verified 2026-07-26**: exit 0, all six at
+      `0.1.0`, correct order, no errors.
+- [x] Spot-check each tarball's file list for the files you expect (`dist/`,
       `README.md`, `LICENSE`, plus `SPEC.md` for blob-spec,
       `openclaw.plugin.json` for openclaw-plugin, `vendor/` for setup-cli)
-      and the absence of `.test.js`/`.test.d.ts` files.
-- [ ] Confirm `@dmemo/core`'s packed `package.json` shows
+      and the absence of `.test.js`/`.test.d.ts` files. **Verified
+      2026-07-26**: zero `.test.` files across all six tarballs — the
+      `files` negation patterns in `packages/setup-cli/package.json` do
+      cover nested paths like `dist/installers/*.test.js`.
+- [x] Confirm `@dmemo/core`'s packed `package.json` shows
       `"@dmemo/blob-spec": "0.1.0"` (a real version), not
       `"workspace:*"` — `pnpm publish`/`pnpm pack` rewrite this
       automatically; a raw `npm publish` from inside the package dir would
       NOT rewrite it and would produce a broken published package. Always
       publish via `pnpm publish` (or this script, which calls it), never
-      raw `npm publish`.
+      raw `npm publish`. **Verified 2026-07-26** by unpacking real
+      `pnpm pack` tarballs — every cross-package dep is rewritten:
+      `@dmemo/core` → `blob-spec 0.1.0`; `@dmemo/opencode-plugin` and
+      `@dmemo/openclaw-plugin` → `core 0.1.0`. `@dmemo/sdk-wrappers` and
+      `dmemo` have no `@dmemo/*` runtime deps at all (setup-cli ships the
+      engine as prebuilt `vendor/` bundles instead).
 
 ## 5. Verify the Claude Code marketplace repo structure once more
 

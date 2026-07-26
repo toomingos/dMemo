@@ -1,5 +1,9 @@
-# dependencies
-node_modules/
+# dependencies. No trailing slash on purpose: the Claude Code plugin bundle
+# grows a `node_modules` *symlink* at runtime (native-bootstrap.ts's
+# linkNodeModulesShim, pointing at the machine-local native-deps dir), and a
+# directory-only pattern does not match a symlink — so `node_modules/` let it
+# get committed, absolute local path and all.
+node_modules
 
 # build output
 dist/
@@ -20,6 +24,12 @@ benchmarks/local_cache/
 
 # packed tarballs
 *.tgz
+
+# promo video: Remotion project, raw meme assets and the narration script.
+# Third-party meme images / vendor logos — not ours to redistribute.
+video/
+content/
+script.md
 
 # OS / editor noise
 .DS_Store

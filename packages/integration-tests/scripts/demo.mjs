@@ -171,7 +171,7 @@ async function main() {
   const remaining = await provider.getBalance(address);
   const totalS = ((performance.now() - t0) / 1000).toFixed(0);
   console.log(`\n${BOLD}${GREEN}  Done in ${totalS}s. Total spend: ${fmtEther(fundedWei - remaining)} 0G testnet.${RESET}`);
-  console.log(`${DIM}  Private by construction · portable · verifiable · cheap — github.com/toomingos/dMemo${RESET}\n`);
+  console.log(`${DIM}  Private by construction · portable · verifiable · cheap — github.com/dmemo-ai/dmemo${RESET}\n`);
 }
 
 main().catch((err) => {
