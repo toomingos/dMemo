@@ -81,23 +81,26 @@ for (const pkgDir of PUBLISH_ORDER) {
   // would stop at the first already-published package and the release would
   // be stranded half-done. Skipping what is verifiably already live makes
   // the script safely re-runnable.
-  if (isLive) {
-    let alreadyPublished = false;
-    try {
-      const out = execFileSync('npm', ['view', `${pkg.name}@${pkg.version}`, 'version'], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-      });
-      alreadyPublished = out.trim() === pkg.version;
-    } catch {
-      // Non-zero exit means "not published" (404). Anything else that goes
-      // wrong here should not block a publish — fall through and let the
-      // real publish surface the error.
-    }
-    if (alreadyPublished) {
-      console.log(`[skip] ${pkg.name}@${pkg.version} is already on the registry.\n`);
-      continue;
-    }
+  //
+  // Applied in dry-run mode too, and that is the whole point: `npm publish
+  // --dry-run` still refuses an existing name@version, so gating this on
+  // --live left the dry run dying on the first unchanged package. A
+  // rehearsal that cannot survive a partial release rehearses nothing.
+  let alreadyPublished = false;
+  try {
+    const out = execFileSync('npm', ['view', `${pkg.name}@${pkg.version}`, 'version'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    alreadyPublished = out.trim() === pkg.version;
+  } catch {
+    // Non-zero exit means "not published" (404). Anything else that goes
+    // wrong here should not block a publish — fall through and let the
+    // real publish surface the error.
+  }
+  if (alreadyPublished) {
+    console.log(`[skip] ${pkg.name}@${pkg.version} is already on the registry.\n`);
+    continue;
   }
 
   const publishArgs = ['publish', '--access', 'public', '--no-git-checks'];
